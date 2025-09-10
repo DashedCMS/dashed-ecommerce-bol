@@ -25,8 +25,6 @@ class BolSettingsPage extends Page
 
     public function mount(): void
     {
-        Artisan::call('bol:sync-orders');
-
         $formData = [];
         $sites = Sites::getSites();
         foreach ($sites as $site) {
@@ -107,19 +105,6 @@ class BolSettingsPage extends Page
 
     protected function getActions(): array
     {
-        return [
-            Action::make('refreshJsonFeed')
-                ->label('Refresh JSON feed')
-                ->action(function () {
-                    Artisan::call('bol:create-json-feeds');
-
-                    Notification::make()
-                        ->title('De JSON feed is vernieuwd')
-                        ->success()
-                        ->send();
-                })
-                ->icon('heroicon-o-arrow-path')
-                ->color('primary'),
-        ];
+        return [];
     }
 }
