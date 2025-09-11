@@ -42,11 +42,6 @@ class SyncOrdersFromBolCommand extends Command
     {
         if (Bol::isConnected()) {
             Bol::syncOrders();
-
-            foreach(BolOrder::whereNull('order_id')->get() as $bolOrder) {
-                $this->info("Order {$bolOrder->bol_id} wordt gesynct.");
-                Bol::syncOrder($bolOrder);
-            }
         }
     }
 }

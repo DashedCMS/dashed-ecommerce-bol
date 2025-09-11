@@ -129,6 +129,10 @@ class Bol
                     $bolOrderConnection->bol_id = $bolOrder['orderId'];
                     $bolOrderConnection->save();
                 }
+
+                if(!$bolOrderConnection->order_id){
+                    self::syncOrder($bolOrderConnection);
+                }
             }
             return $bolOrders;
         }
@@ -221,10 +225,7 @@ class Bol
             $orderPayment->status = 'paid';
             $orderPayment->save();
 
-            $orderLog = new OrderLog();
-            $orderLog->order_id = $order->id;
-            $orderLog->tag = 'order.created.by.bol';
-            $orderLog->save();
+            OrderLog::createLog($order->id, note: 'Order aangemaakt via Bol.com met ID ' . $bolOrder->bol_id);
 
             $order->changeStatus('paid');
         }
