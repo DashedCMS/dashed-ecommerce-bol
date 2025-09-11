@@ -264,11 +264,10 @@ class Bol
             $deliveryKey = strtolower($trackAndTrace->delivery_company);
             $transporterCode = $transporters[$deliveryKey] ?? 'OTHER';
 
-            try{
+            try {
                 $response = Http::withToken($accessToken)
-                    ->dontTruncateExceptions()
                     ->withHeaders([
-                        'Accept'       => 'application/vnd.retailer.v10+json',
+                        'Accept' => 'application/vnd.retailer.v10+json',
                         'Content-Type' => 'application/vnd.retailer.v10+json',
                     ])
                     ->retry(3)
@@ -281,22 +280,137 @@ class Bol
                             'trackAndTrace' => $trackAndTrace->code
                         ]
                     ])
-                ->json();
+                    ->json();
 
-                if ($response['status'] == 'SUCCESS' || $response['status'] == 'PENDING') {
+                while($response['status'] == 'PENDING'){
+                    sleep(2);
+                    $response = Http::withToken($accessToken)
+                        ->withHeaders([
+                            'Accept' => 'application/vnd.retailer.v10+json',
+                            'Content-Type' => 'application/vnd.retailer.v10+json',
+                        ])
+                        ->retry(3)
+                        ->get(self::APIURL . '/retailer/process-status/' . $response['processStatusId'])
+                        ->json();
+                }
+
+//                dump($response);
+//                sleep(5);
+//                $response = Http::withToken($accessToken)
+//                    ->withHeaders([
+//                        'Accept' => 'application/vnd.retailer.v10+json',
+//                        'Content-Type' => 'application/vnd.retailer.v10+json',
+//                    ])
+//                    ->retry(3)
+//                        ->get($response['links'][0]['href'])
+//                    ->json();
+//                dd($response);
+
+                if ($response['status'] == 'SUCCESS') {
                     $order->bol_shipment_synced = 1;
                     $order->bol_shipment_process_id = $response['processStatusId'];
-                    $order->bol_shipment_entity_id = $response['processStatusId'];
+                    $order->bol_shipment_entity_id = $response['entityId'] ?? '';
                     $order->save();
 
                     OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id);
-                }else{
+                } else {
                     $order->bol_shipment_error = $response['errorMessage'] ?? 'Onbekende fout';
                     $order->save();
 
                     OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
                 }
-            }catch (\Illuminate\Http\Client\RequestException $e){
+            } catch (\Illuminate\Http\Client\RequestException $e) {
+                $order->bol_shipment_error = $e->getMessage();
+                $order->save();
+
+                OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+            }
+
+        }
+    }
+
+    public static function updateShipment(Order $order)
+    {
+        self::refreshToken($order->site_id);
+
+        $accessToken = Customsetting::get('bol_access_token', $order->site_id);
+        if ($accessToken && $order->trackAndTraces->count()) {
+            $trackAndTrace = $order->trackAndTraces->last();
+
+            $transporters = [
+                'postnl' => 'TNT',
+                'postnl_brief' => 'TNT_BRIEF',
+                'dhl' => 'DHL',
+                'dhlforyou' => 'DHLFORYOU',
+                'dpd_nl' => 'DPD-NL',
+                'dpd_be' => 'DPD-BE',
+                'bpost' => 'BPOST_BE',
+                'gls' => 'GLS',
+                'ups' => 'UPS',
+            ];
+
+            $deliveryKey = strtolower($trackAndTrace->delivery_company);
+            $transporterCode = $transporters[$deliveryKey] ?? 'OTHER';
+
+            dump($trackAndTrace->code);
+            try {
+//                $response = Http::withToken($accessToken)
+//                    ->withHeaders([
+//                        'Accept' => 'application/vnd.retailer.v10+json',
+//                        'Content-Type' => 'application/vnd.retailer.v10+json',
+//                    ])
+//                    ->retry(3)
+//                    ->put(self::APIURL . '/retailer/transports/' . $order->bol_shipment_process_id, [
+//                        'transporterCode' => $transporterCode,
+//                        'trackAndTrace' => $trackAndTrace->code
+//                    ])
+//                ->json();
+//                dump($response);
+//
+
+                while($response['status'] == 'PENDING'){
+                    sleep(2);
+                    $response = Http::withToken($accessToken)
+                        ->withHeaders([
+                            'Accept' => 'application/vnd.retailer.v10+json',
+                            'Content-Type' => 'application/vnd.retailer.v10+json',
+                        ])
+                        ->retry(3)
+                        ->get(self::APIURL . '/retailer/process-status/' . $order->bol_shipment_process_id)
+                        ->json();
+                    dump($response);
+                }
+
+//                if($response['links'][0]['href'] ?? false){
+//                    dump($response['links'][0]['href']);
+                $response = Http::withToken($accessToken)
+                    ->withHeaders([
+                        'Accept' => 'application/vnd.retailer.v10+json',
+                        'Content-Type' => 'application/vnd.retailer.v10+json',
+                    ])
+                    ->retry(3)
+                    ->get('https://api.bol.com/shared/process-status/144982631737')
+//                        ->get($response['links'][0]['href'])
+                    ->json();
+                dd($response, 'test');
+//                }
+                dd($response);
+
+                if ($response['status'] == 'SUCCESS') {
+                    $order->bol_shipment_synced = 1;
+                    $order->bol_shipment_process_id = $response['processStatusId'];
+                    $order->bol_shipment_entity_id = $response['entityId'];
+                    $order->save();
+
+                    OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id);
+                } else {
+                    $order->bol_shipment_error = $response['errorMessage'] ?? 'Onbekende fout';
+                    $order->save();
+
+                    OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+                }
+            } catch (\Illuminate\Http\Client\RequestException $e) {
+                dd($e);
                 $order->bol_shipment_error = $e->getMessage();
                 $order->save();
 
