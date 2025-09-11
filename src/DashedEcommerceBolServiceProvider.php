@@ -2,6 +2,9 @@
 
 namespace Dashed\DashedEcommerceBol;
 
+use Dashed\DashedEcommerceBol\Commands\RefreshBolToken;
+use Dashed\DashedEcommerceBol\Commands\SyncShipmentsToBol;
+use Dashed\DashedTranslations\Models\Translation;
 use Spatie\LaravelPackageTools\Package;
 use Illuminate\Console\Scheduling\Schedule;
 use Dashed\DashedEcommerceCore\Models\Order;
@@ -18,14 +21,28 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
     {
         $this->app->booted(function () {
             $schedule = app(Schedule::class);
+            $schedule->command(RefreshBolToken::class)
+                ->hourly();
             $schedule->command(SyncOrdersFromBolCommand::class)
+                ->everyMinute()
+                ->withoutOverlapping();
+            $schedule->command(SyncShipmentsToBol::class)
                 ->everyMinute()
                 ->withoutOverlapping();
         });
 
-        Order::addDynamicRelation('bolOrder', function (Order $model) {
-            return $model->hasOne(BolOrder::class);
-        });
+        ecommerce()->builder('customOrderFields', [
+            'bolOrderId' => [
+                'label' => Translation::get('bol-order-number', 'bol-order-fields', 'Bol bestelnummer'),
+                'hideFromCheckout' => true,
+                'showOnInvoice' => true,
+            ],
+            'bolOrderCommission' => [
+                'label' => Translation::get('bol-commission', 'bol-order-fields', 'Bol commissie'),
+                'hideFromCheckout' => true,
+                'showOnInvoice' => false,
+            ],
+        ]);
     }
 
     public function configurePackage(Package $package): void
@@ -42,6 +59,8 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
 //            ])
             ->hasCommands([
                 SyncOrdersFromBolCommand::class,
+                RefreshBolToken::class,
+                SyncShipmentsToBol::class,
             ]);
 
         cms()->builder('plugins', [

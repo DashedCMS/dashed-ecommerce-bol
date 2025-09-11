@@ -123,16 +123,7 @@ class Bol
             }
 
             foreach ($bolOrders as $bolOrder) {
-                $bolOrderConnection = BolOrder::where('bol_id', $bolOrder['orderId'])->first();
-                if (!$bolOrderConnection) {
-                    $bolOrderConnection = new BolOrder();
-                    $bolOrderConnection->bol_id = $bolOrder['orderId'];
-                    $bolOrderConnection->save();
-                }
-
-                if(!$bolOrderConnection->order_id){
-                    self::syncOrder($bolOrderConnection);
-                }
+                self::syncOrder($bolOrder);
             }
             return $bolOrders;
         }
@@ -140,7 +131,7 @@ class Bol
         return [];
     }
 
-    public static function syncOrder(BolOrder $bolOrder): void
+    public static function syncOrder($bolOrder): void
     {
         $siteId = Sites::getActive();
 
@@ -151,13 +142,18 @@ class Bol
             $response = Http::withToken($accessToken)
                 ->accept('application/vnd.retailer.v10+json')
                 ->retry(3)
-                ->get(self::APIURL . '/retailer/orders/' . $bolOrder->bol_id)
+                ->get(self::APIURL . '/retailer/orders/' . $bolOrder['orderId'])
                 ->json();
 
-            $bolOrder->commission = collect($response['orderItems'])->sum(fn($item) => $item['commission'] * $item['quantity']);
-            $bolOrder->save();
+            $order = Order::where('bol_order_id', $bolOrder['orderId'])->first();
+            if (!$order) {
+                $order = new Order();
+                $order->bol_order_id = $bolOrder['orderId'];
+                $order->bol_order_commission = collect($response['orderItems'])->sum(fn($item) => $item['commission'] * $item['quantity']);
+            } else {
+                return;
+            }
 
-            $order = new Order();
             $order->first_name = $response['shipmentDetails']['firstName'];
             $order->last_name = $response['shipmentDetails']['surname'];
             $order->email = $response['shipmentDetails']['email'];
@@ -182,25 +178,22 @@ class Bol
                 21 => $order->btw,
             ];
             $order->invoice_send_to_customer = 1;
-            $order->order_origin = 'Bol.com';
+            $order->order_origin = 'Bol';
             $order->site_id = $siteId;
             $order->gender = $response['shipmentDetails']['salutation'] ?? '';
             $order->locale = Locales::getFirstLocale()['id'];
             $order->invoice_id = 'PROFORMA';
             $order->save();
 
-            $bolOrder->order_id = $order->id;
-            $bolOrder->save();
-
-            foreach($response['orderItems'] as $orderItem){
+            foreach ($response['orderItems'] as $orderItem) {
                 $orderProduct = OrderProduct::where('bol_id', $orderItem['orderItemId'])->where('order_id', $order->id)->first();
-                if(!$orderProduct){
+                if (!$orderProduct) {
                     $orderProduct = new OrderProduct();
                     $orderProduct->bol_id = $orderItem['orderItemId'];
                 }
 
                 $product = Product::where('ean', $orderItem['product']['ean'])->first();
-                if($product){
+                if ($product) {
                     $orderProduct->product_id = $product->id;
                     $orderProduct->sku = $product->sku;
                 } else {
@@ -220,14 +213,96 @@ class Bol
             $orderPayment = new OrderPayment();
             $orderPayment->amount = $order->total;
             $orderPayment->order_id = $order->id;
-            $orderPayment->psp = 'Bol.com';
+            $orderPayment->psp = 'Bol';
             $orderPayment->payment_method = 'Via Bol';
             $orderPayment->status = 'paid';
             $orderPayment->save();
 
-            OrderLog::createLog($order->id, note: 'Order aangemaakt via Bol.com met ID ' . $bolOrder->bol_id);
+            OrderLog::createLog($order->id, note: 'Order aangemaakt via Bol.com met ID ' . $order->bol_order_id);
 
             $order->changeStatus('paid');
+        }
+    }
+
+    public static function syncShipments()
+    {
+        foreach (Order::where('bol_shipment_synced', 0)->whereNotNull('bol_order_id')->get() as $order) {
+            self::syncShipment($order);
+        }
+    }
+
+    public static function syncShipment(Order $order)
+    {
+        self::refreshToken($order->site_id);
+
+        $accessToken = Customsetting::get('bol_access_token', $order->site_id);
+        if ($accessToken && $order->trackAndTraces->count()) {
+            $trackAndTrace = $order->trackAndTraces->last();
+
+            $orderProducts = [];
+            foreach ($order->orderProducts as $orderProduct) {
+                if ($orderProduct->bol_id) {
+                    $orderProducts[] = [
+                        'orderItemId' => $orderProduct->bol_id,
+                        'quantity' => $orderProduct->quantity,
+                    ];
+                }
+            }
+
+            $transporters = [
+                'postnl' => 'TNT',
+                'postnl_brief' => 'TNT_BRIEF',
+                'dhl' => 'DHL',
+                'dhlforyou' => 'DHLFORYOU',
+                'dpd_nl' => 'DPD-NL',
+                'dpd_be' => 'DPD-BE',
+                'bpost' => 'BPOST_BE',
+                'gls' => 'GLS',
+                'ups' => 'UPS',
+            ];
+
+            $deliveryKey = strtolower($trackAndTrace->delivery_company);
+            $transporterCode = $transporters[$deliveryKey] ?? 'OTHER';
+
+            try{
+                $response = Http::withToken($accessToken)
+                    ->dontTruncateExceptions()
+                    ->withHeaders([
+                        'Accept'       => 'application/vnd.retailer.v10+json',
+                        'Content-Type' => 'application/vnd.retailer.v10+json',
+                    ])
+                    ->retry(3)
+                    ->post(self::APIURL . '/retailer/shipments', [
+                        'orderItems' => $orderProducts,
+                        'shipmentReference' => $order->invoice_id,
+//                        'shippingLabelId' => $trackAndTrace->order_id . '-' . $trackAndTrace->id,
+                        'transport' => [
+                            'transporterCode' => $transporterCode,
+                            'trackAndTrace' => $trackAndTrace->code
+                        ]
+                    ])
+                ->json();
+
+                if ($response['status'] == 'SUCCESS' || $response['status'] == 'PENDING') {
+                    $order->bol_shipment_synced = 1;
+                    $order->bol_shipment_process_id = $response['processStatusId'];
+                    $order->bol_shipment_entity_id = $response['processStatusId'];
+                    $order->save();
+
+                    OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id);
+                }else{
+                    $order->bol_shipment_error = $response['errorMessage'] ?? 'Onbekende fout';
+                    $order->save();
+
+                    OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+                }
+            }catch (\Illuminate\Http\Client\RequestException $e){
+                $order->bol_shipment_error = $e->getMessage();
+                $order->save();
+
+                OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+            }
+
         }
     }
 }

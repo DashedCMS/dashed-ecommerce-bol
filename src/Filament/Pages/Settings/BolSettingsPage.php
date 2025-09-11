@@ -25,6 +25,7 @@ class BolSettingsPage extends Page
 
     public function mount(): void
     {
+        Bol::syncShipments();
         $formData = [];
         $sites = Sites::getSites();
         foreach ($sites as $site) {

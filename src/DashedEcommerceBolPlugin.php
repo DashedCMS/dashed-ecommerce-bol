@@ -2,6 +2,8 @@
 
 namespace Dashed\DashedEcommerceBol;
 
+use Dashed\DashedEcommerceBol\Filament\Widgets\BolOrderStats2;
+use Dashed\DashedEcommerceCore\Models\Order;
 use Filament\Panel;
 use Filament\Contracts\Plugin;
 use Dashed\DashedEcommerceBol\Filament\Widgets\BolOrderStats;
@@ -16,10 +18,14 @@ class DashedEcommerceBolPlugin implements Plugin
 
     public function register(Panel $panel): void
     {
+        $widgets = [];
+
+        if(Order::where('order_origin', 'Bol')->count()){
+            $widgets[] = BolOrderStats::class;
+        }
+
         $panel
-            ->widgets([
-                BolOrderStats::class,
-            ])
+            ->widgets($widgets)
             ->pages([
                 BolSettingsPage::class,
             ]);
