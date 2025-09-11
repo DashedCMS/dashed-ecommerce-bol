@@ -162,7 +162,7 @@ class Bol
             $order->zip_code = $response['shipmentDetails']['zipCode'];
             $order->city = $response['shipmentDetails']['city'];
             $order->country = $response['shipmentDetails']['countryCode'];
-            $order->company_name = $response['shipmentDetails']['company'];
+            $order->company_name = $response['shipmentDetails']['company'] ?? '';
             $order->invoice_first_name = $response['billingDetails']['firstName'];
             $order->invoice_last_name = $response['billingDetails']['surname'];
             $order->invoice_street = $response['billingDetails']['streetName'];
@@ -180,7 +180,7 @@ class Bol
             $order->invoice_send_to_customer = 1;
             $order->order_origin = 'Bol.com';
             $order->site_id = $siteId;
-            $order->gender = $response['shipmentDetails']['salutation'];
+            $order->gender = $response['shipmentDetails']['salutation'] ?? '';
             $order->locale = Locales::getFirstLocale()['id'];
             $order->invoice_id = 'PROFORMA';
             $order->save();
