@@ -2,14 +2,12 @@
 
 namespace Dashed\DashedEcommerceBol;
 
-use Dashed\DashedEcommerceBol\Commands\RefreshBolToken;
-use Dashed\DashedEcommerceBol\Commands\SyncShipmentsToBol;
-use Dashed\DashedTranslations\Models\Translation;
 use Spatie\LaravelPackageTools\Package;
 use Illuminate\Console\Scheduling\Schedule;
-use Dashed\DashedEcommerceCore\Models\Order;
-use Dashed\DashedEcommerceBol\Models\BolOrder;
+use Dashed\DashedTranslations\Models\Translation;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
+use Dashed\DashedEcommerceBol\Commands\RefreshBolToken;
+use Dashed\DashedEcommerceBol\Commands\SyncShipmentsToBol;
 use Dashed\DashedEcommerceBol\Commands\SyncOrdersFromBolCommand;
 use Dashed\DashedEcommerceBol\Filament\Pages\Settings\BolSettingsPage;
 

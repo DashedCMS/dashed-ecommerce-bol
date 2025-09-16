@@ -3,12 +3,9 @@
 namespace Dashed\DashedEcommerceBol\Filament\Pages\Settings;
 
 use Filament\Pages\Page;
-use Filament\Actions\Action;
 use Filament\Forms\Components\Tabs;
 use Dashed\DashedCore\Classes\Sites;
-use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Tabs\Tab;
-use Illuminate\Support\Facades\Artisan;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Dashed\DashedEcommerceBol\Classes\Bol;
@@ -52,7 +49,7 @@ class BolSettingsPage extends Page
                         'lg' => 2,
                     ]),
                 Placeholder::make('label')
-                    ->label("Bol is " . (!Customsetting::get('bol_connected', $site['id'], 0) ? 'niet' : '') . ' geconnect')
+                    ->label("Bol is " . (! Customsetting::get('bol_connected', $site['id'], 0) ? 'niet' : '') . ' geconnect')
                     ->content(Customsetting::get('bol_connection_error', $site['id'], ''))
                     ->columnSpan([
                         'default' => 1,

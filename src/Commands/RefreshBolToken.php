@@ -4,8 +4,6 @@ namespace Dashed\DashedEcommerceBol\Commands;
 
 use Illuminate\Console\Command;
 use Dashed\DashedEcommerceBol\Classes\Bol;
-use Dashed\DashedCore\Models\Customsetting;
-use Dashed\DashedEcommerceBol\Models\BolOrder;
 
 class RefreshBolToken extends Command
 {

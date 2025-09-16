@@ -2,13 +2,11 @@
 
 namespace Dashed\DashedEcommerceBol\Classes;
 
-use Dashed\DashedCore\Classes\Locales;
-use Exception;
 use Dashed\DashedCore\Classes\Sites;
 use Illuminate\Support\Facades\Http;
+use Dashed\DashedCore\Classes\Locales;
 use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
-use Dashed\DashedEcommerceBol\Models\BolOrder;
 use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
@@ -21,7 +19,7 @@ class Bol
 
     public static function isConnected(?string $siteId = null): bool
     {
-        if (!$siteId) {
+        if (! $siteId) {
             $siteId = Sites::getActive();
         }
 
@@ -39,6 +37,7 @@ class Bol
                     Customsetting::set('bol_connected', 1, $siteId);
                     Customsetting::set('bol_connection_error', null, $siteId);
                     Customsetting::set('bol_access_token', $response['access_token'], $siteId);
+
                     return true;
                 }
             }
@@ -46,18 +45,20 @@ class Bol
             Customsetting::set('bol_connected', 0, $siteId);
             Customsetting::set('bol_connection_error', $e->getMessage(), $siteId);
             Customsetting::set('bol_access_token', null, $siteId);
+
             return false;
         }
 
         Customsetting::set('bol_connected', 0, $siteId);
         Customsetting::set('bol_connection_error', 'error', $siteId);
         Customsetting::set('bol_access_token', null, $siteId);
+
         return false;
     }
 
     public static function refreshToken(?string $siteId = null): void
     {
-        if (!$siteId) {
+        if (! $siteId) {
             $siteId = Sites::getActive();
         }
 
@@ -75,6 +76,7 @@ class Bol
                     Customsetting::set('bol_connected', 1, $siteId);
                     Customsetting::set('bol_connection_error', null, $siteId);
                     Customsetting::set('bol_access_token', $response['access_token'], $siteId);
+
                     return;
                 }
             }
@@ -82,6 +84,7 @@ class Bol
             Customsetting::set('bol_connected', 0, $siteId);
             Customsetting::set('bol_connection_error', $e->getMessage(), $siteId);
             Customsetting::set('bol_access_token', null, $siteId);
+
             return;
         }
 
@@ -92,7 +95,7 @@ class Bol
 
     public static function syncOrders($siteId = null)
     {
-        if (!$siteId) {
+        if (! $siteId) {
             $siteId = Sites::getActive();
         }
 
@@ -125,6 +128,7 @@ class Bol
             foreach ($bolOrders as $bolOrder) {
                 self::syncOrder($bolOrder);
             }
+
             return $bolOrders;
         }
 
@@ -146,10 +150,10 @@ class Bol
                 ->json();
 
             $order = Order::where('bol_order_id', $bolOrder['orderId'])->first();
-            if (!$order) {
+            if (! $order) {
                 $order = new Order();
                 $order->bol_order_id = $bolOrder['orderId'];
-                $order->bol_order_commission = collect($response['orderItems'])->sum(fn($item) => $item['commission'] * $item['quantity']);
+                $order->bol_order_commission = collect($response['orderItems'])->sum(fn ($item) => $item['commission'] * $item['quantity']);
             } else {
                 return;
             }
@@ -170,7 +174,7 @@ class Bol
             $order->invoice_zip_code = $response['billingDetails']['zipCode'];
             $order->invoice_city = $response['billingDetails']['city'];
             $order->invoice_country = $response['billingDetails']['countryCode'];
-            $order->total = collect($response['orderItems'])->sum(fn($item) => $item['unitPrice'] * $item['quantity']);
+            $order->total = collect($response['orderItems'])->sum(fn ($item) => $item['unitPrice'] * $item['quantity']);
             $order->btw = $order->total / 121 * 21;
             $order->subtotal = $order->total;
             $order->discount = 0;
@@ -187,7 +191,7 @@ class Bol
 
             foreach ($response['orderItems'] as $orderItem) {
                 $orderProduct = OrderProduct::where('bol_id', $orderItem['orderItemId'])->where('order_id', $order->id)->first();
-                if (!$orderProduct) {
+                if (! $orderProduct) {
                     $orderProduct = new OrderProduct();
                     $orderProduct->bol_id = $orderItem['orderItemId'];
                 }
@@ -277,12 +281,12 @@ class Bol
 //                        'shippingLabelId' => $trackAndTrace->order_id . '-' . $trackAndTrace->id,
                         'transport' => [
                             'transporterCode' => $transporterCode,
-                            'trackAndTrace' => $trackAndTrace->code
-                        ]
+                            'trackAndTrace' => $trackAndTrace->code,
+                        ],
                     ])
                     ->json();
 
-                while($response['status'] == 'PENDING'){
+                while ($response['status'] == 'PENDING') {
                     sleep(2);
                     $response = Http::withToken($accessToken)
                         ->withHeaders([
@@ -294,17 +298,17 @@ class Bol
                         ->json();
                 }
 
-//                dump($response);
-//                sleep(5);
-//                $response = Http::withToken($accessToken)
-//                    ->withHeaders([
-//                        'Accept' => 'application/vnd.retailer.v10+json',
-//                        'Content-Type' => 'application/vnd.retailer.v10+json',
-//                    ])
-//                    ->retry(3)
-//                        ->get($response['links'][0]['href'])
-//                    ->json();
-//                dd($response);
+                //                dump($response);
+                //                sleep(5);
+                //                $response = Http::withToken($accessToken)
+                //                    ->withHeaders([
+                //                        'Accept' => 'application/vnd.retailer.v10+json',
+                //                        'Content-Type' => 'application/vnd.retailer.v10+json',
+                //                    ])
+                //                    ->retry(3)
+                //                        ->get($response['links'][0]['href'])
+                //                    ->json();
+                //                dd($response);
 
                 if ($response['status'] == 'SUCCESS') {
                     $order->bol_shipment_synced = 1;
@@ -353,22 +357,23 @@ class Bol
             $transporterCode = $transporters[$deliveryKey] ?? 'OTHER';
 
             dump($trackAndTrace->code);
-            try {
-//                $response = Http::withToken($accessToken)
-//                    ->withHeaders([
-//                        'Accept' => 'application/vnd.retailer.v10+json',
-//                        'Content-Type' => 'application/vnd.retailer.v10+json',
-//                    ])
-//                    ->retry(3)
-//                    ->put(self::APIURL . '/retailer/transports/' . $order->bol_shipment_process_id, [
-//                        'transporterCode' => $transporterCode,
-//                        'trackAndTrace' => $trackAndTrace->code
-//                    ])
-//                ->json();
-//                dump($response);
-//
 
-                while($response['status'] == 'PENDING'){
+            try {
+                //                $response = Http::withToken($accessToken)
+                //                    ->withHeaders([
+                //                        'Accept' => 'application/vnd.retailer.v10+json',
+                //                        'Content-Type' => 'application/vnd.retailer.v10+json',
+                //                    ])
+                //                    ->retry(3)
+                //                    ->put(self::APIURL . '/retailer/transports/' . $order->bol_shipment_process_id, [
+                //                        'transporterCode' => $transporterCode,
+                //                        'trackAndTrace' => $trackAndTrace->code
+                //                    ])
+                //                ->json();
+                //                dump($response);
+                //
+
+                while ($response['status'] == 'PENDING') {
                     sleep(2);
                     $response = Http::withToken($accessToken)
                         ->withHeaders([
@@ -381,8 +386,8 @@ class Bol
                     dump($response);
                 }
 
-//                if($response['links'][0]['href'] ?? false){
-//                    dump($response['links'][0]['href']);
+                //                if($response['links'][0]['href'] ?? false){
+                //                    dump($response['links'][0]['href']);
                 $response = Http::withToken($accessToken)
                     ->withHeaders([
                         'Accept' => 'application/vnd.retailer.v10+json',
@@ -393,7 +398,7 @@ class Bol
 //                        ->get($response['links'][0]['href'])
                     ->json();
                 dd($response, 'test');
-//                }
+                //                }
                 dd($response);
 
                 if ($response['status'] == 'SUCCESS') {

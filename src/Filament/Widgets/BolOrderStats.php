@@ -2,11 +2,9 @@
 
 namespace Dashed\DashedEcommerceBol\Filament\Widgets;
 
-use Dashed\DashedEcommerceCore\Classes\CurrencyHelper;
-use Dashed\DashedEcommerceCore\Models\Order;
 use Filament\Widgets\StatsOverviewWidget;
-use Dashed\DashedEcommerceBol\Models\BolOrder;
-use Filament\Widgets\StatsOverviewWidget\Card;
+use Dashed\DashedEcommerceCore\Models\Order;
+use Dashed\DashedEcommerceCore\Classes\CurrencyHelper;
 
 class BolOrderStats extends StatsOverviewWidget
 {

@@ -14,6 +14,10 @@ return new class () extends Migration {
             $table->string('bol_order_id')->nullable();
             $table->decimal('bol_order_commission', 10, 2)->nullable();
         });
+        Schema::table('dashed__order_products', function (Blueprint $table) {
+            $table->string('bol_id')
+                ->nullable();
+        });
     }
 
     /**
