@@ -2,13 +2,11 @@
 
 namespace Dashed\DashedEcommerceBol\Classes;
 
-use Dashed\DashedCore\Classes\Locales;
-use Exception;
 use Dashed\DashedCore\Classes\Sites;
 use Illuminate\Support\Facades\Http;
+use Dashed\DashedCore\Classes\Locales;
 use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
-use Dashed\DashedEcommerceBol\Models\BolOrder;
 use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
@@ -39,6 +37,7 @@ class Bol
                     Customsetting::set('bol_connected', 1, $siteId);
                     Customsetting::set('bol_connection_error', null, $siteId);
                     Customsetting::set('bol_access_token', $response['access_token'], $siteId);
+
                     return true;
                 }
             }
@@ -46,12 +45,14 @@ class Bol
             Customsetting::set('bol_connected', 0, $siteId);
             Customsetting::set('bol_connection_error', $e->getMessage(), $siteId);
             Customsetting::set('bol_access_token', null, $siteId);
+
             return false;
         }
 
         Customsetting::set('bol_connected', 0, $siteId);
         Customsetting::set('bol_connection_error', 'error', $siteId);
         Customsetting::set('bol_access_token', null, $siteId);
+
         return false;
     }
 
@@ -75,6 +76,7 @@ class Bol
                     Customsetting::set('bol_connected', 1, $siteId);
                     Customsetting::set('bol_connection_error', null, $siteId);
                     Customsetting::set('bol_access_token', $response['access_token'], $siteId);
+
                     return;
                 }
             }
@@ -82,6 +84,7 @@ class Bol
             Customsetting::set('bol_connected', 0, $siteId);
             Customsetting::set('bol_connection_error', $e->getMessage(), $siteId);
             Customsetting::set('bol_access_token', null, $siteId);
+
             return;
         }
 
@@ -104,16 +107,20 @@ class Bol
             $bolOrdersResultCount = 50;
             $page = 1;
             while ($bolOrdersResultCount == 50) {
-                $response = Http::withToken($accessToken)
-                    ->accept('application/vnd.retailer.v10+json')
-                    ->retry(3)
-                    ->get(self::APIURL . '/retailer/orders', [
-                        'page' => $page,
-                        'status' => 'ALL',
+                try {
+                    $response = Http::withToken($accessToken)
+                        ->accept('application/vnd.retailer.v10+json')
+                        ->retry(3)
+                        ->get(self::APIURL . '/retailer/orders', [
+                            'page' => $page,
+                            'status' => 'ALL',
 //                        'fulfilment-method' => 'ALL',
 //                        'latest-change-date' => now()->subMonths(3)->toDateString(),
-                    ])
-                    ->json();
+                        ])
+                        ->json();
+                } catch (\Exception $e) {
+                    $bolOrdersResultCount = 0;
+                }
 
                 if (isset($response['orders'])) {
                     $bolOrders = array_merge($bolOrders, $response['orders']);
@@ -125,6 +132,7 @@ class Bol
             foreach ($bolOrders as $bolOrder) {
                 self::syncOrder($bolOrder);
             }
+
             return $bolOrders;
         }
 
@@ -277,8 +285,8 @@ class Bol
 //                        'shippingLabelId' => $trackAndTrace->order_id . '-' . $trackAndTrace->id,
                         'transport' => [
                             'transporterCode' => $transporterCode,
-                            'trackAndTrace' => $trackAndTrace->code
-                        ]
+                            'trackAndTrace' => $trackAndTrace->code,
+                        ],
                     ])
                     ->json();
 
@@ -296,17 +304,17 @@ class Bol
                         ->json();
                 }
 
-//                dump($response);
-//                sleep(5);
-//                $response = Http::withToken($accessToken)
-//                    ->withHeaders([
-//                        'Accept' => 'application/vnd.retailer.v10+json',
-//                        'Content-Type' => 'application/vnd.retailer.v10+json',
-//                    ])
-//                    ->retry(3)
-//                        ->get($response['links'][0]['href'])
-//                    ->json();
-//                dd($response);
+                //                dump($response);
+                //                sleep(5);
+                //                $response = Http::withToken($accessToken)
+                //                    ->withHeaders([
+                //                        'Accept' => 'application/vnd.retailer.v10+json',
+                //                        'Content-Type' => 'application/vnd.retailer.v10+json',
+                //                    ])
+                //                    ->retry(3)
+                //                        ->get($response['links'][0]['href'])
+                //                    ->json();
+                //                dd($response);
 
                 if ($response['status'] == 'SUCCESS') {
                     $order->bol_shipment_synced = 1;
@@ -362,20 +370,21 @@ class Bol
             $transporterCode = $transporters[$deliveryKey] ?? 'OTHER';
 
             dump($trackAndTrace->code);
+
             try {
-//                $response = Http::withToken($accessToken)
-//                    ->withHeaders([
-//                        'Accept' => 'application/vnd.retailer.v10+json',
-//                        'Content-Type' => 'application/vnd.retailer.v10+json',
-//                    ])
-//                    ->retry(3)
-//                    ->put(self::APIURL . '/retailer/transports/' . $order->bol_shipment_process_id, [
-//                        'transporterCode' => $transporterCode,
-//                        'trackAndTrace' => $trackAndTrace->code
-//                    ])
-//                ->json();
-//                dump($response);
-//
+                //                $response = Http::withToken($accessToken)
+                //                    ->withHeaders([
+                //                        'Accept' => 'application/vnd.retailer.v10+json',
+                //                        'Content-Type' => 'application/vnd.retailer.v10+json',
+                //                    ])
+                //                    ->retry(3)
+                //                    ->put(self::APIURL . '/retailer/transports/' . $order->bol_shipment_process_id, [
+                //                        'transporterCode' => $transporterCode,
+                //                        'trackAndTrace' => $trackAndTrace->code
+                //                    ])
+                //                ->json();
+                //                dump($response);
+                //
 
                 while ($response['status'] == 'PENDING') {
                     sleep(2);
@@ -390,8 +399,8 @@ class Bol
                     dump($response);
                 }
 
-//                if($response['links'][0]['href'] ?? false){
-//                    dump($response['links'][0]['href']);
+                //                if($response['links'][0]['href'] ?? false){
+                //                    dump($response['links'][0]['href']);
                 $response = Http::withToken($accessToken)
                     ->withHeaders([
                         'Accept' => 'application/vnd.retailer.v10+json',
@@ -402,7 +411,7 @@ class Bol
 //                        ->get($response['links'][0]['href'])
                     ->json();
                 dd($response, 'test');
-//                }
+                //                }
                 dd($response);
 
                 if ($response['status'] == 'SUCCESS') {
