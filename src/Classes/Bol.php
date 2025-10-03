@@ -19,7 +19,7 @@ class Bol
 
     public static function isConnected(?string $siteId = null): bool
     {
-        if (!$siteId) {
+        if (! $siteId) {
             $siteId = Sites::getActive();
         }
 
@@ -58,7 +58,7 @@ class Bol
 
     public static function refreshToken(?string $siteId = null): void
     {
-        if (!$siteId) {
+        if (! $siteId) {
             $siteId = Sites::getActive();
         }
 
@@ -95,7 +95,7 @@ class Bol
 
     public static function syncOrders($siteId = null)
     {
-        if (!$siteId) {
+        if (! $siteId) {
             $siteId = Sites::getActive();
         }
 
@@ -154,10 +154,10 @@ class Bol
                 ->json();
 
             $order = Order::where('bol_order_id', $bolOrder['orderId'])->first();
-            if (!$order) {
+            if (! $order) {
                 $order = new Order();
                 $order->bol_order_id = $bolOrder['orderId'];
-                $order->bol_order_commission = collect($response['orderItems'])->sum(fn($item) => $item['commission'] * $item['quantity']);
+                $order->bol_order_commission = collect($response['orderItems'])->sum(fn ($item) => $item['commission'] * $item['quantity']);
             } else {
                 return;
             }
@@ -178,7 +178,7 @@ class Bol
             $order->invoice_zip_code = $response['billingDetails']['zipCode'];
             $order->invoice_city = $response['billingDetails']['city'];
             $order->invoice_country = $response['billingDetails']['countryCode'];
-            $order->total = collect($response['orderItems'])->sum(fn($item) => $item['unitPrice'] * $item['quantity']);
+            $order->total = collect($response['orderItems'])->sum(fn ($item) => $item['unitPrice'] * $item['quantity']);
             $order->btw = $order->total / 121 * 21;
             $order->subtotal = $order->total;
             $order->discount = 0;
@@ -195,7 +195,7 @@ class Bol
 
             foreach ($response['orderItems'] as $orderItem) {
                 $orderProduct = OrderProduct::where('bol_id', $orderItem['orderItemId'])->where('order_id', $order->id)->first();
-                if (!$orderProduct) {
+                if (! $orderProduct) {
                     $orderProduct = new OrderProduct();
                     $orderProduct->bol_id = $orderItem['orderItemId'];
                 }
