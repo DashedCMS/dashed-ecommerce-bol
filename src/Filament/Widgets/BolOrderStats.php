@@ -6,7 +6,7 @@ use Carbon\Carbon;
 use Filament\Widgets\StatsOverviewWidget;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Classes\CurrencyHelper;
-use Dashed\DashedEcommerceCore\Filament\Pages\Dashboard\Dashboard;
+use Dashed\DashedCore\Filament\Pages\Dashboard\Dashboard;
 
 class BolOrderStats extends StatsOverviewWidget
 {
