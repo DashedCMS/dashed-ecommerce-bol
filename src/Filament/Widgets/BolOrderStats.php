@@ -54,9 +54,9 @@ class BolOrderStats extends StatsOverviewWidget
         }
 
         return [
-            StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', $endDate->$endFormat())->where('order_origin', 'Bol')->count()),
-            StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', $endDate->$endFormat())->where('order_origin', 'Bol')->sum('total'))),
-            StatsOverviewWidget\Stat::make('Totale commissie aan Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', $endDate->$endFormat())->where('order_origin', 'Bol')->sum('bol_order_commission'))),
+            StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', '<=', $endDate->$endFormat())->where('order_origin', 'Bol')->count()),
+            StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', '<=', $endDate->$endFormat())->where('order_origin', 'Bol')->sum('total'))),
+            StatsOverviewWidget\Stat::make('Totale commissie aan Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', '<=', $endDate->$endFormat())->where('order_origin', 'Bol')->sum('bol_order_commission'))),
 //            StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', Order::where('created_at', '>=', now()->startOfMonth())->where('order_origin', 'Bol')->count())
 //                ->description('Deze maand'),
 //            StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', now()->startOfMonth())->where('order_origin', 'Bol')->sum('total')))

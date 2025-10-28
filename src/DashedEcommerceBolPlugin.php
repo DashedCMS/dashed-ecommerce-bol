@@ -19,7 +19,7 @@ class DashedEcommerceBolPlugin implements Plugin
     {
         $widgets = [];
 
-        if (cms()->isCMSRoute() && Order::where('order_origin', 'Bol')->count()) {
+        if (Order::where('order_origin', 'Bol')->count()) {
             $widgets[] = BolOrderStats::class;
         }
 
