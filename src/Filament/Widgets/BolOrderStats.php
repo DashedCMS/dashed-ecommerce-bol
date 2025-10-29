@@ -39,7 +39,11 @@ class BolOrderStats extends StatsOverviewWidget
         $endDate = $this->filters['endDate'] ? Carbon::parse($this->filters['endDate']) : now();
         $steps = $this->filters['steps'] ?? 'per_day';
 
-        if ($this->filters['steps'] == 'per_day') {
+        if ($this->filters['steps'] == 'per_hour') {
+            $startFormat = 'startOfDay';
+            $endFormat = 'endOfDay';
+            $addFormat = 'addHour';
+        } elseif ($this->filters['steps'] == 'per_day') {
             $startFormat = 'startOfDay';
             $endFormat = 'endOfDay';
             $addFormat = 'addDay';
