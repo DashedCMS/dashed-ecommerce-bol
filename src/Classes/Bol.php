@@ -193,6 +193,8 @@ class Bol
             $order->invoice_id = 'PROFORMA';
             $order->save();
 
+            $orderContainsPreOrders = false;
+
             foreach ($response['orderItems'] as $orderItem) {
                 $orderProduct = OrderProduct::where('bol_id', $orderItem['orderItemId'])->where('order_id', $order->id)->first();
                 if (! $orderProduct) {
@@ -204,6 +206,12 @@ class Bol
                 if ($product) {
                     $orderProduct->product_id = $product->id;
                     $orderProduct->sku = $product->sku;
+
+                    if ($product->isPreorderable() && $product->stock < $orderItem['quantity']) {
+                        $orderProduct->is_pre_order = true;
+                        $orderProduct->pre_order_restocked_date = $product->expected_in_stock_date;
+                        $orderContainsPreOrders = true;
+                    }
                 } else {
                     $orderProduct->product_id = null;
                 }
@@ -216,6 +224,32 @@ class Bol
                 $orderProduct->btw = $orderProduct->price / 121 * 21;
                 $orderProduct->vat_rate = 21;
                 $orderProduct->save();
+
+                if($product){
+                    foreach ($product->bundleProducts as $bundleProduct) {
+                        $orderProduct = new OrderProduct();
+                        $orderProduct->quantity = $orderItem['quantity'];
+                        $orderProduct->product_id = $bundleProduct->id;
+                        $orderProduct->order_id = $order->id;
+                        $orderProduct->name = $bundleProduct->name;
+                        $orderProduct->sku = $bundleProduct->sku;
+                        $orderProduct->price = 0;
+                        $orderProduct->discount = 0;
+
+                        if ($bundleProduct->isPreorderable() && $bundleProduct->stock < $orderItem['quantity']) {
+                            $orderProduct->is_pre_order = true;
+                            $orderProduct->pre_order_restocked_date = $bundleProduct->expected_in_stock_date;
+                            $orderContainsPreOrders = true;
+                        }
+
+                        $orderProduct->save();
+                    }
+                }
+            }
+
+            if ($orderContainsPreOrders) {
+                $order->contains_pre_orders = true;
+                $order->save();
             }
 
             $orderPayment = new OrderPayment();
