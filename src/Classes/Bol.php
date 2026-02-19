@@ -147,11 +147,17 @@ class Bol
 
         $accessToken = Customsetting::get('bol_access_token', $siteId);
         if ($accessToken) {
-            $response = Http::withToken($accessToken)
-                ->accept('application/vnd.retailer.v10+json')
-                ->retry(3)
-                ->get(self::APIURL . '/retailer/orders/' . $bolOrder['orderId'])
-                ->json();
+            try{
+                $response = Http::withToken($accessToken)
+                    ->accept('application/vnd.retailer.v10+json')
+                    ->retry(3)
+                    ->get(self::APIURL . '/retailer/orders/' . $bolOrder['orderId'])
+                    ->json();
+            }catch (\Exception $exception){
+                OrderLog::createLog(null, note: 'Fout bij synchroniseren van order met Bol.com voor order ID ' . $bolOrder['orderId'] . ': ' . $exception->getMessage());
+
+                return;
+            }
 
             $order = Order::where('bol_order_id', $bolOrder['orderId'])->first();
             if (! $order) {
@@ -225,7 +231,7 @@ class Bol
                 $orderProduct->vat_rate = 21;
                 $orderProduct->save();
 
-                if($product){
+                if ($product) {
                     foreach ($product->bundleProducts as $bundleProduct) {
                         $orderProduct = new OrderProduct();
                         $orderProduct->quantity = $orderItem['quantity'];
