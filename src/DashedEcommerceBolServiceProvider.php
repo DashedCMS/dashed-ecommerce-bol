@@ -28,7 +28,7 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
                 ->everyMinute()
                 ->withoutOverlapping();
             $schedule->command(SyncShipmentsToBol::class)
-                ->everyMinute()
+                ->everyFifteenMinutes()
                 ->withoutOverlapping();
         });
 
