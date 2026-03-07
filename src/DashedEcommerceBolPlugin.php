@@ -10,6 +10,7 @@ use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceBol\Filament\Widgets\BolOrderStats;
 use Dashed\DashedEcommerceBol\Filament\Pages\Settings\BolSettingsPage;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 
 class DashedEcommerceBolPlugin implements Plugin
 {
@@ -39,7 +40,23 @@ class DashedEcommerceBolPlugin implements Plugin
             ->builder('productBlocks', [
                 TextInput::make('bol-product-title')
                     ->label('Bol product titel')
-                    ->helperText('Mogelijke variablen: :name:, :categorie naam:'),
+                    ->debounce()
+                    ->helperText(function (Get $get, $record) {
+                        $bolTitle = $get('bol-product-title');
+                        if (!$bolTitle || !$record || !$record->model || !$record->model->products->count()) {
+                            return 'Mogelijke variablen: :name:, :categorie naam:';
+                        } else {
+                            $product = $record->model->products->first();
+                            $attributes = [];
+
+                            foreach ($product->productFilters as $productFilter) {
+                                $bolTitle = str($bolTitle)->replace(':' . str($productFilter->name)->lower() . ':', $productFilter->productFilterOptions->where('id', $productFilter->pivot->product_filter_option_id)->first()?->name ?? '');
+                            }
+
+                            return 'Mogelijke variablen: :name:, :categorie naam:. Voorbeeld: ' . $bolTitle;
+                        }
+
+                    }),
             ]);
     }
 
