@@ -47,7 +47,6 @@ class DashedEcommerceBolPlugin implements Plugin
                             return 'Mogelijke variablen: :name:, :categorie naam:';
                         } else {
                             $product = $record->model->products->first();
-                            $attributes = [];
 
                             foreach ($product->productFilters as $productFilter) {
                                 $bolTitle = str($bolTitle)->replace(':' . str($productFilter->name)->lower() . ':', $productFilter->productFilterOptions->where('id', $productFilter->pivot->product_filter_option_id)->first()?->name ?? '');
