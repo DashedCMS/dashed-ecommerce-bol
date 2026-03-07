@@ -222,7 +222,7 @@ class Bol
                     $orderProduct->product_id = null;
                 }
 
-                $orderProduct->name = $orderItem['product']['title'];
+                $orderProduct->name = $product->name ?? $orderItem['product']['title'];
                 $orderProduct->quantity = $orderItem['quantity'];
                 $orderProduct->price = $orderItem['unitPrice'] * $orderItem['quantity'];
                 $orderProduct->discount = 0;
