@@ -281,6 +281,10 @@ class Bol
 
     public static function syncShipment(Order $order)
     {
+        if($order->status == 'unhandled'){
+            return;
+        }
+
         self::refreshToken($order->site_id);
 
         $accessToken = Customsetting::get('bol_access_token', $order->site_id);
