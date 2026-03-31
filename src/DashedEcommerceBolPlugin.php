@@ -2,15 +2,13 @@
 
 namespace Dashed\DashedEcommerceBol;
 
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
 use Filament\Panel;
 use Filament\Contracts\Plugin;
+use Filament\Forms\Components\TextInput;
 use Dashed\DashedEcommerceCore\Models\Order;
+use Filament\Schemas\Components\Utilities\Get;
 use Dashed\DashedEcommerceBol\Filament\Widgets\BolOrderStats;
 use Dashed\DashedEcommerceBol\Filament\Pages\Settings\BolSettingsPage;
-use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Utilities\Get;
 
 class DashedEcommerceBolPlugin implements Plugin
 {
@@ -43,7 +41,7 @@ class DashedEcommerceBolPlugin implements Plugin
                     ->debounce()
                     ->helperText(function (Get $get, $record) {
                         $bolTitle = $get('bol-product-title');
-                        if (!$bolTitle || !$record || !$record->model || !$record->model->products->count()) {
+                        if (! $bolTitle || ! $record || ! $record->model || ! $record->model->products->count()) {
                             return 'Mogelijke variablen: :name:, :categorie naam:';
                         } else {
                             $product = $record->model->products->first();

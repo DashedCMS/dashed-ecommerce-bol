@@ -11,10 +11,13 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Tabs\Tab;
 use Dashed\DashedEcommerceBol\Classes\Bol;
 use Dashed\DashedCore\Models\Customsetting;
+use Dashed\DashedCore\Traits\HasSettingsPermission;
 use Filament\Infolists\Components\TextEntry;
 
 class BolSettingsPage extends Page
 {
+    use HasSettingsPermission;
+
     protected static bool $shouldRegisterNavigation = false;
     protected static ?string $title = 'Bol';
 

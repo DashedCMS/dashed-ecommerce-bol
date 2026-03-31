@@ -281,7 +281,7 @@ class Bol
 
     public static function syncShipment(Order $order)
     {
-        if($order->status == 'unhandled'){
+        if ($order->status == 'unhandled') {
             return;
         }
 
