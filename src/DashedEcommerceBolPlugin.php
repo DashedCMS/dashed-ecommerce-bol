@@ -41,7 +41,7 @@ class DashedEcommerceBolPlugin implements Plugin
                     ->debounce()
                     ->helperText(function (Get $get, $record) {
                         $bolTitle = $get('bol-product-title');
-                        if (! $bolTitle || ! $record || ! $record->model || ! $record->model->products->count()) {
+                        if (! $bolTitle || ! $record || ! $record->model || !$record->model->products ||! $record->model->products->count()) {
                             return 'Mogelijke variablen: :name:, :categorie naam:';
                         } else {
                             $product = $record->model->products->first();

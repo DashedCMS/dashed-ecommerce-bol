@@ -11,8 +11,8 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Tabs\Tab;
 use Dashed\DashedEcommerceBol\Classes\Bol;
 use Dashed\DashedCore\Models\Customsetting;
-use Dashed\DashedCore\Traits\HasSettingsPermission;
 use Filament\Infolists\Components\TextEntry;
+use Dashed\DashedCore\Traits\HasSettingsPermission;
 
 class BolSettingsPage extends Page
 {
