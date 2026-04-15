@@ -163,7 +163,7 @@ class Bol
             if (! $order) {
                 $order = new Order();
                 $order->bol_order_id = $bolOrder['orderId'];
-                $order->bol_order_commission = collect($response['orderItems'])->sum(fn ($item) => $item['commission'] * $item['quantity']);
+                $order->bol_order_commission = collect($response['orderItems'])->sum(fn ($item) => $item['commission']);
             } else {
                 return;
             }
