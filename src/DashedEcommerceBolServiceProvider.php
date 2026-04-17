@@ -17,6 +17,8 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
 
     public function bootingPackage()
     {
+        \Dashed\DashedEcommerceCore\Classes\OrderOrigins::register('Bol', 'Bol.com', true);
+
         $this->app->booted(function () {
             $schedule = app(Schedule::class);
             $schedule->command(RefreshBolToken::class)
