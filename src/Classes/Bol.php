@@ -433,6 +433,7 @@ class Bol
                     $order->bol_shipment_error = null;
                     $order->save();
                     OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id);
+
                     return;
                 }
 
@@ -441,6 +442,7 @@ class Bol
                     $order->bol_shipment_error = null;
                     $order->save();
                     OrderLog::createLog($order->id, note: 'Order was al verzonden op Bol.com, gemarkeerd als synced: ' . $order->bol_order_id);
+
                     return;
                 }
 
@@ -450,6 +452,7 @@ class Bol
                     $order->bol_shipment_error = $response['errorMessage'] ?? 'Onbekende fout';
                     $order->save();
                     OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+
                     return;
                 }
 
