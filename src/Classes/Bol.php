@@ -446,7 +446,7 @@ class Bol
                     return;
                 }
 
-                // ERROR — attempt to parse split signature.
+                // ERROR - attempt to parse split signature.
                 $splitGroups = self::parseBolSplitError((string) ($response['errorMessage'] ?? ''));
                 if ($splitGroups === null) {
                     $order->bol_shipment_error = $response['errorMessage'] ?? 'Onbekende fout';
