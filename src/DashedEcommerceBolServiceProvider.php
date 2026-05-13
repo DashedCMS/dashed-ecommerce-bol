@@ -90,15 +90,17 @@ MARKDOWN,
 
         cms()->registerSettingsPage(BolSettingsPage::class, 'Bol', 'archive-box', 'Koppel Bol');
 
-        cms()->registerIntegration([
-            'slug' => 'bol',
-            'label' => 'Bol.com',
-            'icon' => 'heroicon-o-shopping-bag',
-            'category' => 'marketplace',
-            'settings_page' => BolSettingsPage::class,
-            'health_check' => fn (?string $siteId = null) => \Dashed\DashedCore\Integrations\IntegrationHealth::fromSettings(['bol_client_id', 'bol_client_secret'], $siteId, 'Client ID of secret ontbreekt'),
-            'package' => 'dashed-ecommerce-bol',
-        ]);
+        if (method_exists(cms(), 'registerIntegration')) {
+            cms()->registerIntegration([
+                'slug' => 'bol',
+                'label' => 'Bol.com',
+                'icon' => 'heroicon-o-shopping-bag',
+                'category' => 'marketplace',
+                'settings_page' => BolSettingsPage::class,
+                'health_check' => fn (?string $siteId = null) => \Dashed\DashedCore\Integrations\IntegrationHealth::fromSettings(['bol_client_id', 'bol_client_secret'], $siteId, 'Client ID of secret ontbreekt'),
+                'package' => 'dashed-ecommerce-bol',
+            ]);
+        }
 
         $package
             ->name('dashed-ecommerce-bol')
