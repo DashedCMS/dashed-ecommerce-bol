@@ -334,7 +334,7 @@ class Bol
         string $transporterCode,
         string $trackAndTrace
     ): array {
-        $response = Http::withToken($accessToken)
+        $httpResponse = Http::withToken($accessToken)
             ->withHeaders([
                 'Accept' => 'application/vnd.retailer.v10+json',
                 'Content-Type' => 'application/vnd.retailer.v10+json',
@@ -347,19 +347,38 @@ class Bol
                     'transporterCode' => $transporterCode,
                     'trackAndTrace' => $trackAndTrace,
                 ],
-            ])
-            ->json();
+            ]);
+
+        $response = $httpResponse->json();
+
+        // Bol can answer a 2xx with an empty or non-JSON body, in which case
+        // ->json() is null. Degrade to a structured error so callers can record
+        // it instead of crashing on the array return type.
+        if (! is_array($response)) {
+            return [
+                'status' => 'ERROR',
+                'errorMessage' => 'Bol gaf een lege of ongeldige respons (HTTP ' . $httpResponse->status() . ')',
+            ];
+        }
 
         $linkToPing = $response['links'][0]['href'] ?? null;
         while (($response['status'] ?? null) === 'PENDING' && $linkToPing) {
             sleep(2);
-            $response = Http::withToken($accessToken)
+            $polled = Http::withToken($accessToken)
                 ->withHeaders([
                     'Accept' => 'application/vnd.retailer.v10+json',
                     'Content-Type' => 'application/vnd.retailer.v10+json',
                 ])
                 ->get($linkToPing)
                 ->json();
+
+            // Stop polling on an empty/non-JSON poll response; keep the last
+            // known (PENDING) state, which classifies downstream as an error.
+            if (! is_array($polled)) {
+                break;
+            }
+
+            $response = $polled;
         }
 
         return $response;
