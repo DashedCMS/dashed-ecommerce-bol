@@ -2,6 +2,7 @@
 
 namespace Dashed\DashedEcommerceBol\Classes;
 
+use Illuminate\Support\Facades\Log;
 use Dashed\DashedCore\Classes\Sites;
 use Illuminate\Support\Facades\Http;
 use Dashed\DashedCore\Classes\Locales;
@@ -154,7 +155,10 @@ class Bol
                     ->get(self::APIURL . '/retailer/orders/' . $bolOrder['orderId'])
                     ->json();
             } catch (\Exception $exception) {
-                OrderLog::createLog(null, note: 'Fout bij synchroniseren van order met Bol.com voor order ID ' . $bolOrder['orderId'] . ': ' . $exception->getMessage());
+                // Geen lokale order beschikbaar (ophalen mislukte), dus loggen we
+                // naar de applicatie-log i.p.v. de order-gebonden OrderLog.
+                report($exception);
+                Log::error('Fout bij synchroniseren van order met Bol.com voor order ID ' . $bolOrder['orderId'] . ': ' . $exception->getMessage());
 
                 return;
             }
