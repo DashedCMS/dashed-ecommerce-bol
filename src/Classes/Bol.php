@@ -397,12 +397,7 @@ class Bol
 
     public static function syncShipment(Order $order)
     {
-        if ($order->status == 'unhandled') {
-            self::logShipmentSkip($order, 'order is nog niet afgehandeld (status unhandled)');
-
-            return;
-        }
-
+        // Sync de track & trace zodra die er is, ongeacht de orderstatus.
         self::refreshToken($order->site_id);
 
         $accessToken = Customsetting::get('bol_access_token', $order->site_id);
