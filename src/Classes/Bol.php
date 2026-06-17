@@ -63,6 +63,15 @@ class Bol
             $siteId = Sites::getActive();
         }
 
+        // Hergebruik een nog geldig token i.p.v. bij elke aanroep een nieuwe op te
+        // halen. Bol-tokens leven ~5 min; zonder deze cache vuurt syncShipments()
+        // anders één tokenrequest per order af (de grootste vertrager van die sync).
+        $existingToken = Customsetting::get('bol_access_token', $siteId);
+        $expiresAt = Customsetting::get('bol_access_token_expires_at', $siteId);
+        if ($existingToken && $expiresAt && now()->timestamp < (int) $expiresAt) {
+            return;
+        }
+
         try {
             $id = Customsetting::get('bol_client_id', $siteId);
             $secret = Customsetting::get('bol_client_secret', $siteId);
@@ -77,6 +86,10 @@ class Bol
                     Customsetting::set('bol_connected', 1, $siteId);
                     Customsetting::set('bol_connection_error', null, $siteId);
                     Customsetting::set('bol_access_token', $response['access_token'], $siteId);
+                    // Ververs iets voor de echte expiry zodat we geen token gebruiken
+                    // dat midden in een request verloopt.
+                    $ttl = (int) ($response['expires_in'] ?? 299);
+                    Customsetting::set('bol_access_token_expires_at', now()->addSeconds(max(30, $ttl - 30))->timestamp, $siteId);
 
                     return;
                 }
@@ -85,6 +98,7 @@ class Bol
             Customsetting::set('bol_connected', 0, $siteId);
             Customsetting::set('bol_connection_error', $e->getMessage(), $siteId);
             Customsetting::set('bol_access_token', null, $siteId);
+            Customsetting::set('bol_access_token_expires_at', null, $siteId);
 
             return;
         }
@@ -92,6 +106,7 @@ class Bol
         Customsetting::set('bol_connected', 0, $siteId);
         Customsetting::set('bol_connection_error', 'error', $siteId);
         Customsetting::set('bol_access_token', null, $siteId);
+        Customsetting::set('bol_access_token_expires_at', null, $siteId);
     }
 
     public static function syncOrders($siteId = null)
