@@ -398,13 +398,23 @@ class Bol
     public static function syncShipment(Order $order)
     {
         if ($order->status == 'unhandled') {
+            self::logShipmentSkip($order, 'order is nog niet afgehandeld (status unhandled)');
+
             return;
         }
 
         self::refreshToken($order->site_id);
 
         $accessToken = Customsetting::get('bol_access_token', $order->site_id);
-        if (! $accessToken || ! $order->trackAndTraces->count()) {
+        if (! $accessToken) {
+            self::logShipmentSkip($order, 'geen geldig Bol-accesstoken');
+
+            return;
+        }
+
+        if (! $order->trackAndTraces->count()) {
+            self::logShipmentSkip($order, 'order heeft nog geen track & trace');
+
             return;
         }
 
@@ -426,6 +436,8 @@ class Bol
 
         $syncableProducts = $order->orderProducts->filter(fn ($p) => (bool) $p->bol_id);
         if ($syncableProducts->isEmpty()) {
+            self::logShipmentSkip($order, 'geen orderregels met een Bol-ID');
+
             return;
         }
 
@@ -555,6 +567,23 @@ class Bol
             $order->save();
             OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
         }
+    }
+
+    /**
+     * Record why an order was not synced to Bol: store the reason on the order and
+     * write an OrderLog. Only logs when the reason changed since the previous
+     * attempt, so the 15-minute sync does not flood the log with duplicates.
+     */
+    private static function logShipmentSkip(Order $order, string $reason): void
+    {
+        if ($order->bol_shipment_error === $reason) {
+            return;
+        }
+
+        $order->bol_shipment_error = $reason;
+        $order->save();
+
+        OrderLog::createLog($order->id, note: 'Niet naar Bol.com gesynchroniseerd voor order ID ' . $order->bol_order_id . ': ' . $reason);
     }
 
     public static function updateShipment(Order $order)
