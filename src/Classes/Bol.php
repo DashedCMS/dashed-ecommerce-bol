@@ -10,6 +10,7 @@ use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
+use Illuminate\Http\Client\ConnectionException;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
 
@@ -17,6 +18,10 @@ class Bol
 {
     public const APIURL = 'https://api.bol.com';
     public const LOGINURL = 'https://login.bol.com';
+
+    // Pauze tussen opeenvolgende order-requests, zodat we de Bol-API niet in
+    // één burst overspoelen (minder kans op rate-limits / 504 gateway timeouts).
+    public const REQUEST_THROTTLE_MICROSECONDS = 300000;
 
     public static function isConnected(?string $siteId = null): bool
     {
@@ -143,10 +148,16 @@ class Bol
                     $bolOrdersResultCount = count($response['orders']);
                     $page++;
                 }
+
+                // Pacing tussen pagina-opvragingen.
+                usleep(self::REQUEST_THROTTLE_MICROSECONDS);
             }
 
             foreach ($bolOrders as $bolOrder) {
                 self::syncOrder($bolOrder);
+
+                // Pacing tussen losse order-opvragingen.
+                usleep(self::REQUEST_THROTTLE_MICROSECONDS);
             }
 
             return $bolOrders;
@@ -164,19 +175,37 @@ class Bol
         $accessToken = Customsetting::get('bol_access_token', $siteId);
         if ($accessToken) {
             try {
-                $response = Http::withToken($accessToken)
+                $httpResponse = Http::withToken($accessToken)
                     ->accept('application/vnd.retailer.v10+json')
-                    ->retry(3)
-                    ->get(self::APIURL . '/retailer/orders/' . $bolOrder['orderId'])
-                    ->json();
-            } catch (\Exception $exception) {
-                // Geen lokale order beschikbaar (ophalen mislukte), dus loggen we
-                // naar de applicatie-log i.p.v. de order-gebonden OrderLog.
-                report($exception);
-                Log::error('Fout bij synchroniseren van order met Bol.com voor order ID ' . $bolOrder['orderId'] . ': ' . $exception->getMessage());
+                    ->retry(3, 1000, throw: false)
+                    ->get(self::APIURL . '/retailer/orders/' . $bolOrder['orderId']);
+            } catch (ConnectionException $exception) {
+                // Verbinding met Bol mislukt (time-out): order overslaan en bij de
+                // volgende sync opnieuw proberen, zonder dit als fout te rapporteren.
+                Log::warning('Bol.com order ' . $bolOrder['orderId'] . ' tijdelijk overgeslagen (verbindingsfout).');
 
                 return;
             }
+
+            // Tijdelijke serverfout bij Bol (bijv. 504 Gateway Timeout): overslaan en
+            // bij de volgende sync opnieuw proberen. Bewust geen report()/error, zodat
+            // dit niet als applicatiefout binnenkomt.
+            if ($httpResponse->serverError()) {
+                Log::warning('Bol.com order ' . $bolOrder['orderId'] . ' tijdelijk overgeslagen (HTTP ' . $httpResponse->status() . ').');
+
+                return;
+            }
+
+            // Andere mislukte respons (bijv. 4xx): wél als fout loggen, maar de sync
+            // van de overige orders niet blokkeren.
+            if ($httpResponse->failed()) {
+                report(new \Exception('Bol order sync HTTP ' . $httpResponse->status() . ' voor order ' . $bolOrder['orderId']));
+                Log::error('Fout bij synchroniseren van order met Bol.com voor order ID ' . $bolOrder['orderId'] . ': HTTP ' . $httpResponse->status());
+
+                return;
+            }
+
+            $response = $httpResponse->json();
 
             $order = Order::where('bol_order_id', $bolOrder['orderId'])->first();
             if (! $order) {
