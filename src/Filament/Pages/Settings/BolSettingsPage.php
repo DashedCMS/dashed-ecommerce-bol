@@ -60,10 +60,10 @@ class BolSettingsPage extends Page
                         'lg' => 2,
                     ]),
                 TextInput::make("bol_client_id_{$site['id']}")
-                    ->label('Bol client ID')
+                    ->label(__('Bol client ID'))
                     ->maxLength(255),
                 TextInput::make("bol_client_secret_{$site['id']}")
-                    ->label('Bol client secret')
+                    ->label(__('Bol client secret'))
                     ->maxLength(255),
             ];
 
@@ -93,7 +93,7 @@ class BolSettingsPage extends Page
         }
 
         Notification::make()
-            ->title('De Bol instellingen zijn opgeslagen')
+            ->title(__('De Bol instellingen zijn opgeslagen'))
             ->success()
             ->send();
 

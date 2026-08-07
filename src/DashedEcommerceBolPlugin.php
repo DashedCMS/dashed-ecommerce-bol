@@ -37,7 +37,7 @@ class DashedEcommerceBolPlugin implements Plugin
         cms()
             ->builder('productBlocks', [
                 TextInput::make('bol-product-title')
-                    ->label('Bol product titel')
+                    ->label(__('Bol product titel'))
                     ->debounce()
                     ->helperText(function (Get $get, $record) {
                         $bolTitle = $get('bol-product-title');
