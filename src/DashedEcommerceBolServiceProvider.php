@@ -19,6 +19,20 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
     {
         \Dashed\DashedEcommerceCore\Classes\OrderOrigins::register('Bol', 'Bol.com', true);
 
+        // Een klant die via Bol kocht mag geen nieuwsbrief krijgen: die is
+        // klant van Bol en heeft ons geen toestemming gegeven. Achter een
+        // guard, want een webshop zonder nieuwsbriefmodule heeft hier niets
+        // aan, en op klassenaam als string zodat dit pakket geen harde
+        // afhankelijkheid op de gebeurtenis krijgt.
+        if (app()->bound('newsletter')) {
+            \Illuminate\Support\Facades\Event::listen(
+                'Dashed\\DashedEcommerceCore\\Events\\Orders\\OrderCreatedEvent',
+                function (object $event): void {
+                    \Dashed\DashedEcommerceBol\Newsletter\ExcludeBolCustomers::forOrder($event->order);
+                },
+            );
+        }
+
         $this->app->booted(function () {
             $schedule = app(Schedule::class);
             $schedule->command(RefreshBolToken::class)
@@ -112,6 +126,7 @@ MARKDOWN,
                 SyncOrdersFromBolCommand::class,
                 RefreshBolToken::class,
                 SyncShipmentsToBol::class,
+                \Dashed\DashedEcommerceBol\Commands\ExcludeBolCustomersFromNewsletter::class,
             ]);
 
         cms()->builder('plugins', [
