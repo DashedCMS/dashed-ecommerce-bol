@@ -5,6 +5,7 @@ namespace Dashed\DashedEcommerceBol\Classes;
 use RuntimeException;
 use Illuminate\Support\Facades\Http;
 use Dashed\DashedCore\Models\Customsetting;
+use Illuminate\Http\Client\RequestException;
 
 /**
  * Dun laagje om de retour-endpoints van de Bol Retailer API (v10). Tests
@@ -53,20 +54,36 @@ class BolReturns
     {
         $token = $this->token($siteId);
 
-        $response = Http::withToken($token)
-            ->withHeaders(self::HEADERS)
-            ->retry(3)
-            ->put(Bol::APIURL . '/retailer/returns/' . $rmaId, [
-                'handlingResult' => $handlingResult,
-                'quantityReturned' => $quantityReturned,
-            ])
-            ->throw()
-            ->json();
+        try {
+            $response = Http::withToken($token)
+                ->withHeaders(self::HEADERS)
+                ->retry(3)
+                ->put(Bol::APIURL . '/retailer/returns/' . $rmaId, [
+                    'handlingResult' => $handlingResult,
+                    'quantityReturned' => $quantityReturned,
+                ])
+                ->throw()
+                ->json();
+        } catch (RequestException $e) {
+            throw new RuntimeException(__('Bol antwoordde :status op rma :rma', ['status' => $e->response->status(), 'rma' => $rmaId]), 0, $e);
+        }
+
+        // Bol can answer a 2xx with an empty or non-JSON body, in which case
+        // ->json() is null. Fail clearly instead of indexing into null below.
+        if (! is_array($response)) {
+            throw new RuntimeException(__('Bol gaf een lege of ongeldige respons voor rma :rma', ['rma' => $rmaId]));
+        }
 
         $link = $response['links'][0]['href'] ?? null;
         while (($response['status'] ?? null) === 'PENDING' && $link) {
             sleep(2);
-            $polled = Http::withToken($token)->withHeaders(self::HEADERS)->get($link)->json();
+
+            try {
+                $polled = Http::withToken($token)->withHeaders(self::HEADERS)->get($link)->throw()->json();
+            } catch (RequestException $e) {
+                throw new RuntimeException(__('Bol antwoordde :status op rma :rma', ['status' => $e->response->status(), 'rma' => $rmaId]), 0, $e);
+            }
+
             if (! is_array($polled)) {
                 break;
             }
