@@ -38,6 +38,43 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
             );
         }
 
+        // Uitkomst van een Bol-retour terugmelden aan Bol. Achter class_exists:
+        // de events en het uitbreidingspunt bestaan pas sinds ec-core met
+        // deelproject 3 van de retouren-epic.
+        foreach ([
+            \Dashed\DashedEcommerceCore\Events\Orders\OrderReturnProcessedEvent::class,
+            \Dashed\DashedEcommerceCore\Events\Orders\OrderReturnClosedEvent::class,
+            \Dashed\DashedEcommerceCore\Events\Orders\OrderReturnRejectedEvent::class,
+        ] as $eventClass) {
+            if (class_exists($eventClass)) {
+                \Illuminate\Support\Facades\Event::listen($eventClass, function ($event): void {
+                    if ($event->orderReturn->bol_return_id) {
+                        \Dashed\DashedEcommerceBol\Jobs\HandleBolReturnJob::dispatch($event->orderReturn);
+                    }
+                });
+            }
+        }
+
+        if (class_exists(\Dashed\DashedEcommerceCore\Filament\Resources\OrderReturnResource\Actions\ReturnActionExtensions::class)) {
+            foreach (['close', 'reject'] as $action) {
+                \Dashed\DashedEcommerceCore\Filament\Resources\OrderReturnResource\Actions\ReturnActionExtensions::register(
+                    $action,
+                    fn (\Dashed\DashedEcommerceCore\Models\OrderReturn $record) => $record->bol_return_id ? [
+                        \Filament\Forms\Components\Select::make('bol_handling_result')
+                            ->label(__('Resultaat voor Bol'))
+                            ->options(\Dashed\DashedEcommerceBol\Classes\BolHandlingResult::options())
+                            ->default(\Dashed\DashedEcommerceBol\Classes\BolHandlingResult::NOT_MEETING_CONDITIONS)
+                            ->required(),
+                    ] : [],
+                    function (\Dashed\DashedEcommerceCore\Models\OrderReturn $record, array $data): void {
+                        if ($record->bol_return_id && ! empty($data['bol_handling_result'])) {
+                            $record->forceFill(['bol_handling_result' => $data['bol_handling_result']])->save();
+                        }
+                    },
+                );
+            }
+        }
+
         $this->app->booted(function () {
             $schedule = app(Schedule::class);
             $schedule->command(RefreshBolToken::class)
