@@ -22,13 +22,18 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
         // Een klant die via Bol kocht mag geen nieuwsbrief krijgen: die is
         // klant van Bol en heeft ons geen toestemming gegeven. Achter een
         // guard, want een webshop zonder nieuwsbriefmodule heeft hier niets
-        // aan, en op klassenaam als string zodat dit pakket geen harde
-        // afhankelijkheid op de gebeurtenis krijgt.
+        // aan.
+        //
+        // Op de Eloquent-gebeurtenis van het model en niet op
+        // OrderCreatedEvent: dat event vuurt alleen vanuit de checkout, en de
+        // Bol-sync slaat een bestelling op met een kale save(). Aan dat event
+        // hangen betekende dat geen enkele nieuwe Bol-klant ooit geblokkeerd
+        // werd. Binnen rescue(), want de nieuwsbrief mag de sync nooit stoppen.
         if (app()->bound('newsletter')) {
             \Illuminate\Support\Facades\Event::listen(
-                'Dashed\\DashedEcommerceCore\\Events\\Orders\\OrderCreatedEvent',
-                function (object $event): void {
-                    \Dashed\DashedEcommerceBol\Newsletter\ExcludeBolCustomers::forOrder($event->order);
+                'eloquent.created: ' . \Dashed\DashedEcommerceCore\Models\Order::class,
+                function (\Dashed\DashedEcommerceCore\Models\Order $order): void {
+                    rescue(fn () => \Dashed\DashedEcommerceBol\Newsletter\ExcludeBolCustomers::forOrder($order));
                 },
             );
         }

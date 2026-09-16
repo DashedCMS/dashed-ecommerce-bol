@@ -44,11 +44,28 @@ class ExcludeBolCustomersFromNewsletter extends Command
         $this->info($adressen->count() . ' uniek(e) adres(sen) op Bol-bestellingen gevonden.');
 
         if ($this->option('dry-run')) {
-            $opLijst = \Dashed\DashedNewsletter\Models\NewsletterSubscriber::whereIn('email', $adressen->pluck('email')->all())
+            $opLijst = \Dashed\DashedNewsletter\Models\NewsletterSubscriber::with('list')
+                ->whereIn('email', $adressen->pluck('email')->all())
                 ->where('status', \Dashed\DashedNewsletter\Models\NewsletterSubscriber::STATUS_ACTIVE)
-                ->count();
+                ->orderBy('email')
+                ->get();
 
-            $this->line('Daarvan staan er nu ' . $opLijst . ' actief op een nieuwsbrieflijst.');
+            $this->line('Daarvan staan er nu ' . $opLijst->count() . ' actief op een nieuwsbrieflijst.');
+
+            // De bron per contact is het spoor naar de weg waarlangs het adres
+            // binnenkwam; zonder die kolom valt niet te zeggen welk lek dicht moet.
+            if ($opLijst->isNotEmpty()) {
+                $this->table(
+                    ['E-mailadres', 'Lijst', 'Bron', 'Aangemeld op'],
+                    $opLijst->map(fn ($contact): array => [
+                        $contact->email,
+                        $contact->list?->name ?? ('#' . $contact->newsletter_list_id),
+                        (string) $contact->source,
+                        (string) ($contact->subscribed_at ?? $contact->created_at),
+                    ])->all(),
+                );
+            }
+
             $this->comment('Niets gewijzigd (dry run).');
 
             return self::SUCCESS;
