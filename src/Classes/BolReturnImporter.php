@@ -5,6 +5,7 @@ namespace Dashed\DashedEcommerceBol\Classes;
 use Throwable;
 use InvalidArgumentException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderReturn;
@@ -77,6 +78,15 @@ class BolReturnImporter
             return;
         }
 
+        // Eén keer geladen, want Bol geeft één RMA per orderregel: twee
+        // retouritems met dezelfde EAN horen dus bij twee verschillende
+        // orderregels als die bestaan (Bol::syncOrder() maakt per Bol-
+        // orderitem een eigen OrderProduct op bol_id). Zonder dit zou de
+        // tweede regel de eerste orderregel claimen en de eerste rma-id
+        // verdwijnen (samengevoegd door ReturnRegistrar::normalize()).
+        $orderProducts = $order->orderProducts()->with('product')->orderBy('id')->get();
+        $claimed = [];
+
         $lines = [];
         $rmaByProduct = [];
         foreach ($items as $item) {
@@ -85,10 +95,14 @@ class BolReturnImporter
 
                 return;
             }
-            $orderProduct = $this->findLine($order, (string) ($item['ean'] ?? ''));
+            $ean = (string) ($item['ean'] ?? '');
+            $orderProduct = $this->findLine($orderProducts, $ean, $claimed);
             $quantity = (int) ($item['expectedQuantity'] ?? 0);
             if (! $orderProduct) {
-                $this->unmatched($siteId, $bolReturn, $order, __('EAN :ean staat niet op deze bestelling.', ['ean' => (string) ($item['ean'] ?? '?')]), $summary);
+                $reason = $this->hasMatchingLine($orderProducts, $ean)
+                    ? __('Bol meldt meer retourregels voor EAN :ean dan er orderregels zijn.', ['ean' => $ean ?: '?'])
+                    : __('EAN :ean staat niet op deze bestelling.', ['ean' => $ean ?: '?']);
+                $this->unmatched($siteId, $bolReturn, $order, $reason, $summary);
 
                 return;
             }
@@ -97,6 +111,7 @@ class BolReturnImporter
 
                 return;
             }
+            $claimed[] = $orderProduct->id;
             $lines[] = [
                 'order_product_id' => $orderProduct->id,
                 'quantity' => $quantity,
@@ -150,15 +165,41 @@ class BolReturnImporter
         return Order::query()->where('bol_order_id', $bolOrderId)->whereNull('credit_for_order_id')->orderBy('id')->first();
     }
 
-    protected function findLine(Order $order, string $ean): ?OrderProduct
+    /**
+     * Eerste nog niet geclaimde orderregel die op de EAN matcht. Een orderregel
+     * mag hooguit één keer per import geclaimd worden, zodat twee retouritems
+     * met dezelfde EAN op twee verschillende orderregels belanden in plaats
+     * van dezelfde regel te delen (en daarmee een rma-id te verliezen).
+     *
+     * @param  Collection<int, OrderProduct>  $orderProducts
+     * @param  array<int, int>  $claimed
+     */
+    protected function findLine(Collection $orderProducts, string $ean, array $claimed): ?OrderProduct
     {
         if ($ean === '') {
             return null;
         }
 
-        return $order->orderProducts()->with('product')->get()
-            ->first(fn (OrderProduct $op) => ReturnableLines::isReturnable($op)
-                && ((string) ($op->product?->ean ?? '') === $ean || ((string) ($op->product?->ean ?? '') === '' && (string) $op->sku === $ean)));
+        return $orderProducts
+            ->filter(fn (OrderProduct $op) => $this->eanMatches($op, $ean) && ! in_array($op->id, $claimed, true))
+            ->first();
+    }
+
+    /** @param  Collection<int, OrderProduct>  $orderProducts */
+    protected function hasMatchingLine(Collection $orderProducts, string $ean): bool
+    {
+        return $ean !== '' && $orderProducts->contains(fn (OrderProduct $op) => $this->eanMatches($op, $ean));
+    }
+
+    protected function eanMatches(OrderProduct $op, string $ean): bool
+    {
+        if (! ReturnableLines::isReturnable($op)) {
+            return false;
+        }
+
+        $productEan = (string) ($op->product?->ean ?? '');
+
+        return $productEan !== '' ? $productEan === $ean : (string) $op->sku === $ean;
     }
 
     protected function reasonNote(array $reason): ?string
