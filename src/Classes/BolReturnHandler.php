@@ -11,7 +11,10 @@ use Dashed\DashedEcommerceCore\Services\OrderReturn\RefundRegistrar;
  * Meldt de uitkomst van een Bol-retour per regel terug aan Bol en boekt bij
  * een verwerkte retour de betaling "Via Bol" op de creditorder (Bol betaalt
  * de klant; wij verrekenen via de Bol-afrekening). Idempotent op
- * bol_handled_at; de betaling wordt hooguit één keer geboekt, ook als de
+ * bol_handled_at, op de retour zelf én op elke regel: een regel die al
+ * gemeld is wordt bij een herkansing overgeslagen, dus een PUT die halverwege
+ * faalt stuurt bij de volgende poging alleen de nog openstaande regels
+ * opnieuw. De betaling wordt hooguit één keer geboekt, ook als de
  * terugmelding daarna faalt en herkanst wordt.
  */
 class BolReturnHandler
@@ -42,11 +45,12 @@ class BolReturnHandler
         $results = [];
         try {
             foreach ($return->lines()->with('orderProduct')->get() as $line) {
-                if (! $line->bol_rma_id) {
+                if (! $line->bol_rma_id || $line->bol_handled_at) {
                     continue;
                 }
                 [$result, $quantity] = $this->resultFor($return, $line);
                 $this->bol->handle($siteId, $line->bol_rma_id, $result, $quantity);
+                $line->forceFill(['bol_handled_at' => now()])->save();
                 $results[] = $line->bol_rma_id . ': ' . $result . ' x' . $quantity;
             }
         } catch (Throwable $e) {
@@ -56,8 +60,15 @@ class BolReturnHandler
             throw $e;
         }
 
-        $return->forceFill(['bol_handled_at' => now(), 'bol_handle_error' => null])->save();
-        OrderLog::createLog(orderId: $order->id, tag: self::TAG_HANDLED, note: __('Bol-retour :id teruggemeld: :regels', ['id' => $return->bol_return_id, 'regels' => implode(', ', $results)]));
+        // Alle regels zijn deze aanroep gelukt of waren al eerder gemeld
+        // (bol_handled_at stond al), dus dit is altijd waar zodra de try
+        // hierboven zonder exception eindigt. De query maakt dat expliciet
+        // in plaats van er stilzwijgend op te vertrouwen.
+        $stillOpen = $return->lines()->whereNotNull('bol_rma_id')->whereNull('bol_handled_at')->exists();
+        if (! $stillOpen) {
+            $return->forceFill(['bol_handled_at' => now(), 'bol_handle_error' => null])->save();
+            OrderLog::createLog(orderId: $order->id, tag: self::TAG_HANDLED, note: __('Bol-retour :id teruggemeld: :regels', ['id' => $return->bol_return_id, 'regels' => implode(', ', $results)]));
+        }
     }
 
     /** @return array{0: string, 1: int} */
