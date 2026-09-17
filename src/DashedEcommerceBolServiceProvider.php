@@ -8,6 +8,7 @@ use Dashed\DashedTranslations\Models\Translation;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Dashed\DashedEcommerceBol\Commands\RefreshBolToken;
 use Dashed\DashedEcommerceBol\Commands\SyncShipmentsToBol;
+use Dashed\DashedEcommerceBol\Commands\SyncBolReturnsCommand;
 use Dashed\DashedEcommerceBol\Commands\SyncOrdersFromBolCommand;
 use Dashed\DashedEcommerceBol\Filament\Pages\Settings\BolSettingsPage;
 
@@ -83,6 +84,9 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
                 ->everyMinute()
                 ->withoutOverlapping();
             $schedule->command(SyncShipmentsToBol::class)
+                ->everyFifteenMinutes()
+                ->withoutOverlapping();
+            $schedule->command(SyncBolReturnsCommand::class)
                 ->everyFifteenMinutes()
                 ->withoutOverlapping();
         });
@@ -168,6 +172,7 @@ MARKDOWN,
                 SyncOrdersFromBolCommand::class,
                 RefreshBolToken::class,
                 SyncShipmentsToBol::class,
+                SyncBolReturnsCommand::class,
                 \Dashed\DashedEcommerceBol\Commands\ExcludeBolCustomersFromNewsletter::class,
             ]);
 
