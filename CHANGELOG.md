@@ -2,7 +2,7 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
-## Unreleased
+## v4.5.0 - 2026-09-17
 
 ### Added
 - **Bol-retouren in het systeem.** `bol:sync-returns` (elk kwartier) haalt open FBR-retouren binnen als goedgekeurde `OrderReturn` via `ReturnRegistrar` (zonder klantmail of label), met `bol_return_id` en per regel `bol_rma_id`. Verwerken, sluiten en afkeuren melden de uitkomst per regel terug aan Bol (`HandleBolReturnJob`, `BolReturnHandler`); bij verwerken komt een betaling "Via Bol" op de creditorder. Bij sluiten en afkeuren kiest de beheerder "Resultaat voor Bol". Niet plaatsbare retouren geven één beheerdersmelding per Bol-retour (`AdminBolReturnUnmatchedMail`). Vereist dashed-ecommerce-core met `ReturnActionExtensions` en de retour-events; zonder die werkt het binnenhalen wel maar niet het terugmelden en de select.
