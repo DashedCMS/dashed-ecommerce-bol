@@ -10,8 +10,8 @@ use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderReturn;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
-use Dashed\DashedEcommerceCore\Services\OrderReturn\ReturnRegistrar;
 use Dashed\DashedEcommerceCore\Services\OrderReturn\ReturnableLines;
+use Dashed\DashedEcommerceCore\Services\OrderReturn\ReturnRegistrar;
 
 /**
  * Zet open Bol-retouren om in gewone OrderReturns via ReturnRegistrar: direct
@@ -35,14 +35,18 @@ class BolReturnImporter
         $summary = new BolReturnImportSummary();
 
         foreach ($this->bol->open($siteId) as $bolReturn) {
+            // De bestelling wordt één keer opgezocht, door importOne() zelf, en
+            // via de referentie hier weer opgevangen: het pad na een exception
+            // hoeft er niet nog een query voor te doen.
+            $order = null;
+
             try {
-                $this->importOne($siteId, (array) $bolReturn, $summary);
+                $this->importOne($siteId, (array) $bolReturn, $summary, $order);
             } catch (Throwable $e) {
                 $summary->failed++;
                 report($e);
-                $orderId = $this->findOrder($siteId, (array) $bolReturn)?->id;
-                if ($orderId) {
-                    OrderLog::createLog(orderId: $orderId, tag: 'order.bol-return-import-failed', note: 'Bol-retour ' . ($bolReturn['returnId'] ?? '?') . ': ' . $e->getMessage());
+                if ($order) {
+                    OrderLog::createLog(orderId: $order->id, tag: 'order.bol-return-import-failed', note: __('Bol-retour :id: :fout', ['id' => (string) ($bolReturn['returnId'] ?? '?'), 'fout' => $e->getMessage()]));
                 }
             }
         }
@@ -50,12 +54,12 @@ class BolReturnImporter
         return $summary;
     }
 
-    protected function importOne(string $siteId, array $bolReturn, BolReturnImportSummary $summary): void
+    protected function importOne(string $siteId, array $bolReturn, BolReturnImportSummary $summary, ?Order &$order = null): void
     {
         $returnId = (string) ($bolReturn['returnId'] ?? '');
         $items = $bolReturn['returnItems'] ?? null;
         if (! is_array($items)) {
-            throw new InvalidArgumentException('returnItems ontbreekt of is geen lijst');
+            throw new InvalidArgumentException(__('returnItems ontbreekt of is geen lijst'));
         }
         $items = array_values(array_filter($items, fn ($i) => is_array($i) && ! ($i['handled'] ?? false)));
 
@@ -96,13 +100,10 @@ class BolReturnImporter
                 return;
             }
             $ean = (string) ($item['ean'] ?? '');
-            $orderProduct = $this->findLine($orderProducts, $ean, $claimed);
             $quantity = (int) ($item['expectedQuantity'] ?? 0);
+            $orderProduct = $this->findLine($orderProducts, $ean, $claimed, $quantity);
             if (! $orderProduct) {
-                $reason = $this->hasMatchingLine($orderProducts, $ean)
-                    ? __('Bol meldt meer retourregels voor EAN :ean dan er orderregels zijn.', ['ean' => $ean ?: '?'])
-                    : __('EAN :ean staat niet op deze bestelling.', ['ean' => $ean ?: '?']);
-                $this->unmatched($siteId, $bolReturn, $order, $reason, $summary);
+                $this->unmatched($siteId, $bolReturn, $order, $this->noLineReason($orderProducts, $ean, $claimed, $quantity), $summary);
 
                 return;
             }
@@ -166,23 +167,65 @@ class BolReturnImporter
     }
 
     /**
-     * Eerste nog niet geclaimde orderregel die op de EAN matcht. Een orderregel
-     * mag hooguit één keer per import geclaimd worden, zodat twee retouritems
-     * met dezelfde EAN op twee verschillende orderregels belanden in plaats
-     * van dezelfde regel te delen (en daarmee een rma-id te verliezen).
+     * Eerste nog niet geclaimde orderregel die op de EAN matcht én genoeg
+     * restant heeft. Een orderregel mag hooguit één keer per import geclaimd
+     * worden, zodat twee retouritems met dezelfde EAN op twee verschillende
+     * orderregels belanden in plaats van dezelfde regel te delen (en daarmee
+     * een rma-id te verliezen). Het restant zit in dit filter en niet in een
+     * controle op de eerste treffer: een bestelling met twee regels van
+     * dezelfde EAN waarvan de eerste al helemaal terug is moet op de tweede
+     * belanden in plaats van gemeld te worden.
      *
      * @param  Collection<int, OrderProduct>  $orderProducts
      * @param  array<int, int>  $claimed
      */
-    protected function findLine(Collection $orderProducts, string $ean, array $claimed): ?OrderProduct
+    protected function findLine(Collection $orderProducts, string $ean, array $claimed, int $quantity): ?OrderProduct
     {
-        if ($ean === '') {
-            return null;
+        return $this->candidates($orderProducts, $ean, $claimed)
+            ->filter(fn (OrderProduct $op) => ReturnableLines::remaining($op) >= max($quantity, 1))
+            ->first();
+    }
+
+    /**
+     * Waarom er geen orderregel overbleef: de EAN staat er niet op, alle regels
+     * met die EAN zijn deze retour al geclaimd, of er is er geen met genoeg
+     * restant (dan noemt de melding het grootste restant dat er nog is).
+     *
+     * @param  Collection<int, OrderProduct>  $orderProducts
+     * @param  array<int, int>  $claimed
+     */
+    protected function noLineReason(Collection $orderProducts, string $ean, array $claimed, int $quantity): string
+    {
+        if (! $this->hasMatchingLine($orderProducts, $ean)) {
+            return __('EAN :ean staat niet op deze bestelling.', ['ean' => $ean ?: '?']);
         }
 
-        return $orderProducts
-            ->filter(fn (OrderProduct $op) => $this->eanMatches($op, $ean) && ! in_array($op->id, $claimed, true))
-            ->first();
+        $candidates = $this->candidates($orderProducts, $ean, $claimed);
+        if ($candidates->isEmpty()) {
+            return __('Bol meldt meer retourregels voor EAN :ean dan er orderregels zijn.', ['ean' => $ean ?: '?']);
+        }
+
+        $roomiest = $candidates->sortByDesc(fn (OrderProduct $op) => ReturnableLines::remaining($op))->first();
+
+        return __('Voor :naam vraagt Bol :aantal terug, maar er kan nog maar :restant.', [
+            'naam' => $roomiest->name,
+            'aantal' => $quantity,
+            'restant' => ReturnableLines::remaining($roomiest),
+        ]);
+    }
+
+    /**
+     * @param  Collection<int, OrderProduct>  $orderProducts
+     * @param  array<int, int>  $claimed
+     * @return Collection<int, OrderProduct>
+     */
+    protected function candidates(Collection $orderProducts, string $ean, array $claimed): Collection
+    {
+        if ($ean === '') {
+            return $orderProducts->take(0);
+        }
+
+        return $orderProducts->filter(fn (OrderProduct $op) => $this->eanMatches($op, $ean) && ! in_array($op->id, $claimed, true));
     }
 
     /** @param  Collection<int, OrderProduct>  $orderProducts */

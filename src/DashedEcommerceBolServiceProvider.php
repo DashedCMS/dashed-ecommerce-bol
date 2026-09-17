@@ -48,9 +48,21 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
             \Dashed\DashedEcommerceCore\Events\Orders\OrderReturnRejectedEvent::class,
         ] as $eventClass) {
             if (class_exists($eventClass)) {
+                // Binnen rescue(), net als de nieuwsbriefluisteraar hierboven:
+                // een wachtrij die de job niet aanneemt mag het verwerken,
+                // sluiten of afkeuren van de retour zelf niet omgooien. Het
+                // kwartiercommando zet de terugmelding daarna alsnog klaar.
                 \Illuminate\Support\Facades\Event::listen($eventClass, function ($event): void {
                     if ($event->orderReturn->bol_return_id) {
-                        \Dashed\DashedEcommerceBol\Jobs\HandleBolReturnJob::dispatch($event->orderReturn);
+                        rescue(function () use ($event): void {
+                            // PendingDispatch stuurt de job pas weg bij het
+                            // opruimen van het object; met unset() gebeurt dat
+                            // binnen deze rescue in plaats van erna. De
+                            // ShouldBeUnique-slot zit in PendingDispatch, dus
+                            // dispatch() blijft de weg en niet Bus::dispatch().
+                            $pending = \Dashed\DashedEcommerceBol\Jobs\HandleBolReturnJob::dispatch($event->orderReturn);
+                            unset($pending);
+                        });
                     }
                 });
             }

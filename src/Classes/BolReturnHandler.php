@@ -38,11 +38,22 @@ class BolReturnHandler
         $order = $return->order;
         $siteId = (string) $order->site_id;
 
+        // Eigen try, want dit is de stap waar het geld in zit: een registrar
+        // die gooit (een creditorder die intussen al betaald is, een bedrag
+        // dat niet klopt) liet eerder geen enkel spoor achter en de job
+        // verdween in de mislukte-jobs-tabel.
         if ($return->status === OrderReturn::STATUS_HANDLED && $return->credit_order_id && ! $return->isRefunded()) {
-            $this->registrar->register($return, $return->creditedAmount(), 'Via Bol', 'bol', ['bol_return_id' => $return->bol_return_id]);
+            try {
+                $this->registrar->register($return, $return->creditedAmount(), 'Via Bol', 'bol', ['bol_return_id' => $return->bol_return_id]);
+            } catch (Throwable $e) {
+                $this->fail($return, $order->id, $e);
+
+                throw $e;
+            }
         }
 
         $results = [];
+
         try {
             foreach ($return->lines()->with('orderProduct')->get() as $line) {
                 if (! $line->bol_rma_id || $line->bol_handled_at) {
@@ -54,8 +65,7 @@ class BolReturnHandler
                 $results[] = $line->bol_rma_id . ': ' . $result . ' x' . $quantity;
             }
         } catch (Throwable $e) {
-            $return->forceFill(['bol_handle_error' => $e->getMessage()])->save();
-            OrderLog::createLog(orderId: $order->id, tag: self::TAG_FAILED, note: __('Terugmelding aan Bol mislukt: :fout', ['fout' => $e->getMessage()]));
+            $this->fail($return, $order->id, $e);
 
             throw $e;
         }
@@ -69,6 +79,20 @@ class BolReturnHandler
             $return->forceFill(['bol_handled_at' => now(), 'bol_handle_error' => null])->save();
             OrderLog::createLog(orderId: $order->id, tag: self::TAG_HANDLED, note: __('Bol-retour :id teruggemeld: :regels', ['id' => $return->bol_return_id, 'regels' => implode(', ', $results)]));
         }
+    }
+
+    /**
+     * Eén plek voor het spoor van een mislukte poging: de melding op de
+     * retour, de orderlog, en de teller waarop SyncBolReturnsCommand de
+     * herkansing afkapt.
+     */
+    protected function fail(OrderReturn $return, int $orderId, Throwable $e): void
+    {
+        $return->forceFill([
+            'bol_handle_error' => $e->getMessage(),
+            'bol_handle_attempts' => (int) $return->bol_handle_attempts + 1,
+        ])->save();
+        OrderLog::createLog(orderId: $orderId, tag: self::TAG_FAILED, note: __('Terugmelding aan Bol mislukt: :fout', ['fout' => $e->getMessage()]));
     }
 
     /** @return array{0: string, 1: int} */

@@ -19,6 +19,12 @@ class BolReturns
         'Content-Type' => 'application/vnd.retailer.v10+json',
     ];
 
+    /** Hooguit zoveel keer op de process-status wachten (2 seconden per ronde). */
+    protected const MAX_STATUS_POLLS = 15;
+
+    /** Hooguit zoveel pagina's ophalen; een paginatie die niet ophoudt mag de sync niet gijzelen. */
+    protected const MAX_PAGES = 200;
+
     /** Alle open FBR-retouren, over alle pagina's; ruwe `returns[]` van Bol. */
     public function open(string $siteId): array
     {
@@ -27,7 +33,7 @@ class BolReturns
         $page = 1;
         $count = 50;
 
-        while ($count === 50) {
+        while ($count === 50 && $page <= self::MAX_PAGES) {
             $response = Http::withToken($token)
                 ->withHeaders(self::HEADERS)
                 ->retry(3)
@@ -75,7 +81,11 @@ class BolReturns
         }
 
         $link = $response['links'][0]['href'] ?? null;
+        $polls = 0;
         while (($response['status'] ?? null) === 'PENDING' && $link) {
+            if (++$polls > self::MAX_STATUS_POLLS) {
+                throw new RuntimeException(__('Bol: process-status bleef PENDING voor rma :rma', ['rma' => $rmaId]));
+            }
             sleep(2);
 
             try {
@@ -91,7 +101,7 @@ class BolReturns
         }
 
         if (($response['status'] ?? null) !== 'SUCCESS') {
-            throw new RuntimeException($response['errorMessage'] ?? ('Bol gaf status ' . ($response['status'] ?? 'onbekend') . ' voor rma ' . $rmaId));
+            throw new RuntimeException($response['errorMessage'] ?? __('Bol gaf status :status voor rma :rma', ['status' => (string) ($response['status'] ?? __('onbekend')), 'rma' => $rmaId]));
         }
     }
 

@@ -16,16 +16,20 @@ class AdminBolReturnUnmatchedMail extends Mailable implements SendsToTelegram
     use Queueable;
     use SerializesModels;
 
-    public function __construct(public array $bolReturn, public ?Order $order, public string $reason)
+    public function __construct(public array $bolReturn, public ?Order $order, public string $reason, public string $siteId = '')
     {
     }
 
     public function build()
     {
         $id = (string) ($this->bolReturn['returnId'] ?? '?');
+        // Afzender van de site waarvoor gesynct wordt, niet van de actieve
+        // site: de sync loopt langs alle sites achter elkaar en heeft geen
+        // verzoek waaraan een actieve site hangt.
+        $siteId = $this->siteId ?: null;
 
         return $this
-            ->from(Customsetting::get('site_from_email'), Customsetting::get('site_name'))
+            ->from(Customsetting::get('site_from_email', $siteId), Customsetting::get('site_name', $siteId))
             ->subject(__('Bol-retour :id kon niet in het systeem worden gezet', ['id' => $id]))
             ->html($this->htmlBody($id));
     }
