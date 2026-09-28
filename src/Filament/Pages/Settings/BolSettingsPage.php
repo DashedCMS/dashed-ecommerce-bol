@@ -6,6 +6,7 @@ use Filament\Pages\Page;
 use Filament\Schemas\Schema;
 use Dashed\DashedCore\Classes\Sites;
 use Filament\Schemas\Components\Tabs;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -32,6 +33,8 @@ class BolSettingsPage extends Page
             $formData["bol_client_id_{$site['id']}"] = Customsetting::get('bol_client_id', $site['id']);
             $formData["bol_client_secret_{$site['id']}"] = Customsetting::get('bol_client_secret', $site['id']);
             $formData["bol_connected_{$site['id']}"] = Customsetting::get('bol_connected', $site['id'], 0) ? true : false;
+            $formData["bol_title_brand_{$site['id']}"] = Customsetting::get('bol_title_brand', $site['id']);
+            $formData["bol_title_instructions_{$site['id']}"] = Customsetting::get('bol_title_instructions', $site['id']);
         }
 
         $this->form->fill($formData);
@@ -65,6 +68,19 @@ class BolSettingsPage extends Page
                 TextInput::make("bol_client_secret_{$site['id']}")
                     ->label(__('Bol client secret'))
                     ->maxLength(255),
+                TextInput::make("bol_title_brand_{$site['id']}")
+                    ->label(__('Merk voor Bol-titels'))
+                    ->helperText(__('Wordt gebruikt als een productgroep geen kenmerk of filter Merk heeft.'))
+                    ->maxLength(100),
+                Textarea::make("bol_title_instructions_{$site['id']}")
+                    ->label(__('Extra aanwijzingen voor Bol-titels'))
+                    ->helperText(__('Gaat mee naar de AI bij het genereren van een Bol-titel, bijvoorbeeld: zeg altijd sierkussen in plaats van kussen.'))
+                    ->rows(3)
+                    ->maxLength(1000)
+                    ->columnSpan([
+                        'default' => 1,
+                        'lg' => 2,
+                    ]),
             ];
 
             $tabs[] = Tab::make($site['id'])
@@ -90,6 +106,8 @@ class BolSettingsPage extends Page
             Customsetting::set('bol_client_id', $this->form->getState()["bol_client_id_{$site['id']}"], $site['id']);
             Customsetting::set('bol_client_secret', $this->form->getState()["bol_client_secret_{$site['id']}"], $site['id']);
             Customsetting::set('bol_connected', Bol::isConnected($site['id']), $site['id']);
+            Customsetting::set('bol_title_brand', $this->form->getState()["bol_title_brand_{$site['id']}"] ?? null, $site['id']);
+            Customsetting::set('bol_title_instructions', $this->form->getState()["bol_title_instructions_{$site['id']}"] ?? null, $site['id']);
         }
 
         Notification::make()

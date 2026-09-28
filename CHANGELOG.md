@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## Unreleased
+
+### Added
+- **Bol-titels laten genereren door AI.** Op een productgroep staat de knop "Bol-titel genereren" en op de productgroepenlijst dezelfde actie als bulkactie (via de wachtrij). De AI schrijft per taal een sjabloon met plaatshouders (`:kleur:`) op basis van de variatiefilters, en schrijft dat weg in het bestaande blok `bol-product-title`; de feed vult het sjabloon daarna per variant in, dus één aanroep per groep volstaat en een nieuwe variant krijgt vanzelf een titel. Een voorstel wordt eerst getoetst door `BolTitleRules` (alleen bekende plaatshouders, elke variatiefilter erin, maximaal 150 tekens ingevuld over de eerste 200 producten, geen reclamewoorden, `|` of `!`); bij een afkeuring krijgt de AI één herkansing met de meldingen, en de bulkactie slaat een voorstel met meldingen nooit op. Merknaam en extra aanwijzingen voor de AI zijn per site instelbaar op de Bol-instellingenpagina.
+
 ## v4.5.0 - 2026-09-17
 
 ### Added

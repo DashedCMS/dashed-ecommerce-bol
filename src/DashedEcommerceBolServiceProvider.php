@@ -154,6 +154,18 @@ MARKDOWN,
                 'Bewaar de client secret in een wachtwoordkluis. Bol toont de secret meestal maar een keer bij aanmaken, daarna kun je hem niet meer terugzien.',
             ],
         );
+
+        // Knop "Bol-titel genereren" op de productgroep, via de haak van
+        // ec-core zodat die dit pakket niet hoeft te kennen.
+        ecommerce()->builder('productGroupHeaderActions', [
+            'bol-title' => fn () => \Dashed\DashedEcommerceBol\Filament\Actions\GenerateBolTitleAction::make(),
+        ]);
+
+        // Bulkactie "Bol-titels genereren" op de productgroepenlijst: zet
+        // GenerateBolTitlesJob klaar voor de selectie, op de achtergrond.
+        ecommerce()->builder('productGroupBulkActions', [
+            'bol-titles' => fn () => \Dashed\DashedEcommerceBol\Filament\Actions\GenerateBolTitlesBulkAction::make(),
+        ]);
     }
 
     public function configurePackage(Package $package): void

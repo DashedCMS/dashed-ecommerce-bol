@@ -40,19 +40,21 @@ class DashedEcommerceBolPlugin implements Plugin
                     ->label(__('Bol product titel'))
                     ->debounce()
                     ->helperText(function (Get $get, $record) {
-                        $bolTitle = $get('bol-product-title');
-                        if (! $bolTitle || ! $record || ! $record->model || ! $record->model->products || ! $record->model->products->count()) {
-                            return 'Mogelijke variablen: :name:, :categorie naam:';
-                        } else {
-                            $product = $record->model->products->first();
-
-                            foreach ($product->productFilters as $productFilter) {
-                                $bolTitle = str($bolTitle)->replace(':' . str($productFilter->name)->lower() . ':', $productFilter->productFilterOptions->where('id', $productFilter->pivot->product_filter_option_id)->first()?->name ?? '');
-                            }
-
-                            return 'Mogelijke variablen: :name:, :categorie naam:. Voorbeeld: ' . $bolTitle;
+                        $template = (string) $get('bol-product-title');
+                        $group = $record?->model instanceof \Dashed\DashedEcommerceCore\Models\ProductGroup ? $record->model : null;
+                        if (! $group) {
+                            return __('Gebruik plaatshouders met de filternaam in kleine letters, bijvoorbeeld :kleur:. Op de productgroep kun je het sjabloon laten genereren.');
                         }
 
+                        // Gecachete context: deze helpertekst draait bij elke render
+                        // van het formulier, en de sets kosten per product queries.
+                        $context = \Dashed\DashedEcommerceBol\Classes\BolTitleContext::for($group, app()->getLocale());
+                        $names = collect($context['variables'])->keys()->map(fn ($key) => ":{$key}:")->implode(', ');
+                        $example = $template !== ''
+                            ? (\Dashed\DashedEcommerceCore\Classes\BolTitleTemplate::renderForSets($template, array_slice($context['sets'], 0, 1))[0] ?? '')
+                            : '';
+
+                        return trim(__('Mogelijke plaatshouders: :namen.', ['namen' => $names ?: '-']) . ($example !== '' ? ' ' . __('Voorbeeld: :voorbeeld', ['voorbeeld' => $example]) : ''));
                     }),
             ]);
     }
