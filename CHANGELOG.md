@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.6.1 - 2026-09-30
+
+### Fixed
+- **Bol-commissie op het dashboard telde elke retour dubbel.** Een creditorder draagt de commissie van de oorspronkelijke order als positief bedrag, terwijl bol die commissie bij een verwerkte retour volledig terugstort. De widget "Statistieken vanuit Bol" telt de commissie van creditorders nu negatief ("Na retouren, incl. btw") en telt creditorders niet meer mee als bestelling. Lovora, september 2026: € 905,97 werd € 428,15, 126 bestellingen werden er 102.
+
 ## v4.6.0 - 2026-09-30
 
 ### Added

@@ -44,10 +44,22 @@ class BolOrderStats extends StatsOverviewWidget
         $endFormat = $formats['endFormat'];
         $addFormat = $formats['addFormat'];
 
+        $bolOrders = fn () => Order::where('created_at', '>=', $startDate->$startFormat())
+            ->where('created_at', '<=', $endDate->$endFormat())
+            ->where('order_origin', 'Bol');
+
+        // Een creditorder (retour) draagt de commissie van de oorspronkelijke order als positief bedrag,
+        // terwijl bol die commissie bij een retour terugstort: tel hem daarom negatief, anders telt elke
+        // retour dubbel. Creditorders zijn ook geen nieuwe bestelling.
+        $commissie = (float) $bolOrders()
+            ->selectRaw('SUM(CASE WHEN credit_for_order_id IS NULL THEN bol_order_commission ELSE -ABS(bol_order_commission) END) AS netto')
+            ->value('netto');
+
         return [
-            StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', '<=', $endDate->$endFormat())->where('order_origin', 'Bol')->count()),
-            StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', '<=', $endDate->$endFormat())->where('order_origin', 'Bol')->sum('total'))),
-            StatsOverviewWidget\Stat::make('Totale commissie aan Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', $startDate->$startFormat())->where('created_at', '<=', $endDate->$endFormat())->where('order_origin', 'Bol')->sum('bol_order_commission'))),
+            StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', $bolOrders()->whereNull('credit_for_order_id')->count()),
+            StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice($bolOrders()->sum('total'))),
+            StatsOverviewWidget\Stat::make('Totale commissie aan Bol', CurrencyHelper::formatPrice($commissie))
+                ->description('Na retouren, incl. btw'),
 //            StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', Order::where('created_at', '>=', now()->startOfMonth())->where('order_origin', 'Bol')->count())
 //                ->description('Deze maand'),
 //            StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', now()->startOfMonth())->where('order_origin', 'Bol')->sum('total')))
