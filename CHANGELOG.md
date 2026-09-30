@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.7.0 - 2026-09-30
+
+### Changed
+- **Bol-titels volgen de richtlijnen van bol.** De AI krijgt het format `[Merk] [Serie] [Productnaam] - [Producttype] - [Kenmerk]` met een voorbeeld, mikt op 70 tekens en zet merk en producttype in de eerste 35 (wat op mobiel zichtbaar is). De controle eist nu dat de titel met het merk begint (instelling of kenmerk/filter Merk), weigert symbolen (`? & * # @ € $ < > = ~ ^` naast `|` en `!`), emoji, woorden van vier letters of meer in hoofdletters (behalve het merk), uitgeschreven getallen (twee t/m tien) en meer actietaal (korting, sale, morgen in huis, kerstcadeau, ...). De harde lengtegrens gaat van 150 naar 100 tekens.
+
 ## v4.6.1 - 2026-09-30
 
 ### Fixed

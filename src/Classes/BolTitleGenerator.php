@@ -37,6 +37,25 @@ class BolTitleGenerator
     }
 
     /**
+     * Waarmee de titel moet beginnen: de plaatshouder van een kenmerk of
+     * filter Merk van de groep, anders het merk uit de instelling, anders
+     * niets. Gedeeld door de prompt en de controle.
+     *
+     * @param  array<string, array{name: string, kind: string, options: list<string>}>  $variables
+     */
+    public static function brandStart(array $variables): ?string
+    {
+        $brandKey = collect(self::BRAND_NAMES)->first(fn ($key) => isset($variables[$key]));
+        if ($brandKey !== null) {
+            return ':' . $brandKey . ':';
+        }
+
+        $brand = trim((string) Customsetting::get('bol_title_brand'));
+
+        return $brand !== '' ? $brand : null;
+    }
+
+    /**
      * @param  list<string>  $locales
      */
     public function generate(ProductGroup $group, array $locales): BolTitleProposal
@@ -48,15 +67,17 @@ class BolTitleGenerator
             $context = BolTitleContext::for($group, $locale, fresh: true);
             $prompt = BolTitleContext::inLocale($locale, fn () => self::prompt($group, $locale, $context));
 
+            $brand = self::brandStart($context['variables']);
+
             $template = $this->ask($prompt);
-            $problems = BolTitleRules::problems($template, $context['variables'], $context['sets']);
+            $problems = BolTitleRules::problems($template, $context['variables'], $context['sets'], $brand);
 
             if ($problems !== []) {
                 $template = $this->ask($prompt
                     . "\n\nJe vorige voorstel was: \"{$template}\". Dat is afgekeurd om deze redenen:\n- "
                     . implode("\n- ", $problems)
                     . "\nLever een verbeterd sjabloon.");
-                $problems = BolTitleRules::problems($template, $context['variables'], $context['sets']);
+                $problems = BolTitleRules::problems($template, $context['variables'], $context['sets'], $brand);
             }
 
             $templates[$locale] = $template;
@@ -90,17 +111,19 @@ class BolTitleGenerator
             $variableLines[] = "- :{$key}: = {$variable['name']}, {$kind}{$options}";
         }
 
-        $brandKey = collect(self::BRAND_NAMES)->first(fn ($key) => isset($context['variables'][$key]));
-        $brand = (string) Customsetting::get('bol_title_brand');
+        $brand = self::brandStart($context['variables']);
         $brandLine = match (true) {
-            $brandKey !== null => "Het merk staat in de plaatshouder :{$brandKey}:; zet die vooraan.",
-            $brand !== '' => "Het merk is \"{$brand}\"; zet het letterlijk vooraan.",
-            default => 'Er is geen merk bekend; begin met de serie of productnaam.',
+            $brand === null => 'Er is geen merk bekend; begin met de serie of productnaam.',
+            str_starts_with($brand, ':') => "Het merk staat in de plaatshouder {$brand}; begin het sjabloon daarmee.",
+            default => "Het merk is \"{$brand}\"; begin het sjabloon letterlijk daarmee.",
         };
 
         $instructions = trim((string) Customsetting::get('bol_title_instructions'));
         $max = BolTitleRules::MAX_LENGTH;
+        $target = BolTitleRules::TARGET_LENGTH;
+        $visible = BolTitleRules::VISIBLE_ON_MOBILE;
         $banned = implode(', ', BolTitleRules::BANNED_WORDS);
+        $characters = implode(' ', BolTitleRules::FORBIDDEN_CHARACTERS);
 
         return implode("\n", array_filter([
             "Schrijf een titelsjabloon voor Bol.com voor een productgroep, in de taal met code \"{$locale}\".",
@@ -115,13 +138,27 @@ class BolTitleGenerator
             '',
             $brandLine,
             '',
-            'Regels van Bol:',
-            '- Volgorde: merk, serie of productnaam, producttype, belangrijkste vaste kenmerken, dan de kenmerken die per variant verschillen.',
-            "- Na invullen maximaal {$max} tekens.",
-            "- Geen reclamewoorden ({$banned}), geen prijzen, geen emoji.",
-            '- Geen woorden helemaal in hoofdletters, behalve een merk dat zo geschreven wordt.',
-            '- Geen | of !. Gebruik een streepje of komma als scheiding.',
-            '- Elke plaatshouder die "MOET in het sjabloon" heeft, komt erin; anders krijgen varianten dezelfde titel.',
+            'Een goede Bol-titel is kort, feitelijk en zoekbaar. Geen reclametekst.',
+            '',
+            'Opbouw, in deze volgorde:',
+            '- Merk, serie of model, productnaam, producttype, dan 1 of 2 onderscheidende kenmerken (kleur, maat, materiaal, aantal).',
+            '- Het format dat Bol aanhoudt: [Merk] [Serie] [Productnaam] - [Producttype] - [Kenmerk]. Scheid de delen met " - ".',
+            '- Voorbeeld: Lovora Wave Vaas - 3D geprint - Zandbeige - 25 cm',
+            '',
+            'Lengte:',
+            "- Op mobiel zijn alleen de eerste {$visible} tekens zichtbaar: merk en producttype moeten daarin staan.",
+            "- Mik na invullen op hooguit {$target} tekens; de harde grens is {$max}.",
+            '',
+            'Niet doen:',
+            "- Geen prijzen, acties of levertijden, en geen reclamewoorden ({$banned}).",
+            '- Geen woorden in hoofdletters om iets te benadrukken; alleen een merk dat zo geschreven wordt.',
+            "- Geen speciale tekens of symbolen ({$characters}) en geen emoji.",
+            '- Geen verkopersinfo of winkelnaam, tenzij dat het merk is.',
+            '- Geen volledige zinnen en geen vage of seizoensgebonden termen (zoals "perfect kerstcadeau").',
+            '- Geen meerdere synoniemen achter elkaar (vaas, bloemenvaas, bloempot); Bol koppelt synoniemen zelf.',
+            '- Getallen in cijfers: "2" en niet "twee".',
+            '- Schrijf in de taal van het land waar verkocht wordt (de taalcode hierboven), niet in het Engels.',
+            '- Elke plaatshouder die "MOET in het sjabloon" heeft, komt erin; anders krijgen varianten dezelfde titel. Houd de variantkenmerken achteraan.',
             $instructions !== '' ? "\nExtra aanwijzingen van de winkel: {$instructions}" : null,
             '',
             'Antwoord als JSON: {"template": "<het sjabloon>"}. Geen uitleg.',

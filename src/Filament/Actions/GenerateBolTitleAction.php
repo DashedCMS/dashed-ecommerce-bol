@@ -164,6 +164,11 @@ class GenerateBolTitleAction
 
         $context = BolTitleContext::for($record, $locale);
 
-        return BolTitleRules::problems($template, $context['variables'], $context['sets']);
+        return BolTitleRules::problems(
+            $template,
+            $context['variables'],
+            $context['sets'],
+            BolTitleGenerator::brandStart($context['variables']),
+        );
     }
 }
