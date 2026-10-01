@@ -59,7 +59,7 @@ class BolOrderStats extends StatsOverviewWidget
             StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', $bolOrders()->whereNull('credit_for_order_id')->count()),
             StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice($bolOrders()->sum('total'))),
             StatsOverviewWidget\Stat::make('Totale commissie aan Bol', CurrencyHelper::formatPrice($commissie))
-                ->description('Na retouren, incl. btw'),
+                ->description(__('Na retouren, incl. btw')),
 //            StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Bol', Order::where('created_at', '>=', now()->startOfMonth())->where('order_origin', 'Bol')->count())
 //                ->description('Deze maand'),
 //            StatsOverviewWidget\Stat::make('Omzet vanuit Bol', CurrencyHelper::formatPrice(Order::where('created_at', '>=', now()->startOfMonth())->where('order_origin', 'Bol')->sum('total')))
