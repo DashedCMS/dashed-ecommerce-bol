@@ -24,6 +24,7 @@ use Dashed\DashedEcommerceBol\Jobs\GenerateBolTitlesJob;
 
 class BolSettingsPage extends Page
 {
+    use \Dashed\DashedCore\Filament\Concerns\TranslatesPageLabels;
     use HasSettingsPermission;
 
     /**
