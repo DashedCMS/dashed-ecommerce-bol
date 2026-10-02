@@ -228,6 +228,7 @@ MARKDOWN,
 
         $package
             ->name('dashed-ecommerce-bol')
+            ->hasTranslations()
 //            ->hasViews()
 //            ->hasRoutes([
 //                'bolRoutes',
