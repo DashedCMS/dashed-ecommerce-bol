@@ -9,6 +9,7 @@ use Dashed\DashedCore\Classes\Locales;
 use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Models\Product;
+use Dashed\DashedEcommerceCore\Classes\OssVat;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Illuminate\Http\Client\ConnectionException;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
@@ -299,6 +300,13 @@ class Bol
                         $orderProduct->save();
                     }
                 }
+            }
+
+            // De order-btw hierboven is met het eigen tarief gerekend; de regels
+            // volgen bij een verzending naar een ander EU-land het landtarief
+            // (OSS, dashed-ecommerce-core >= v4.149.0).
+            if (class_exists(OssVat::class)) {
+                OssVat::recalculateOrderVat($order);
             }
 
             if ($orderContainsPreOrders) {

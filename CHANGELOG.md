@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.8.0 - 2026-10-05
+
+### Changed
+- Bol-orders naar een ander EU-land volgen de OSS-instelling van dashed-ecommerce-core (>= v4.149.0): de regels krijgen het btw-tarief van het afleverland en `btw`/`vat_percentages` van de order worden daarna uit de regels opgebouwd (`OssVat::recalculateOrderVat()`). Zonder de instelling, of met een oudere dashed-ecommerce-core, verandert er niets.
+
 ## v4.7.0 - 2026-09-30
 
 ### Changed
