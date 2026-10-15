@@ -2,9 +2,7 @@
 
 namespace Dashed\DashedEcommerceBol\Classes;
 
-use Dashed\DashedCore\Models\User;
 use Illuminate\Support\Facades\Cache;
-use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedCore\Notifications\AdminNotifier;
@@ -47,27 +45,9 @@ class BolReturnUnmatchedNotifier
         }, null, true);
     }
 
-    /**
-     * De ingestelde adressen van déze site, anders de superadmins. Bewust niet
-     * via Mails::getAdminNotificationEmails(): die leest de actieve site, en de
-     * sync loopt langs alle sites achter elkaar.
-     *
-     * @return array<int, string>
-     */
+    /** @return array<int, string> */
     protected function recipients(string $siteId): array
     {
-        $emails = [];
-        foreach ((array) (Customsetting::get('notification_invoice_emails', $siteId, []) ?: []) as $email) {
-            $email = strtolower(trim((string) $email));
-            if ($email !== '' && ! in_array($email, $emails, true)) {
-                $emails[] = $email;
-            }
-        }
-        if ($emails) {
-            return $emails;
-        }
-
-        return User::query()->where('role', 'superadmin')->whereNotNull('email')->orderBy('id')
-            ->pluck('email')->map(fn ($e) => strtolower(trim((string) $e)))->filter()->unique()->values()->all();
+        return BolAdminRecipients::for($siteId);
     }
 }

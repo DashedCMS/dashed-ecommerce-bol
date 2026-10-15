@@ -9,12 +9,14 @@ use Illuminate\Support\Facades\Http;
 use Dashed\DashedCore\Classes\Locales;
 use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
-use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Classes\OssVat;
+use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Illuminate\Http\Client\ConnectionException;
+use Dashed\DashedCore\Notifications\AdminNotifier;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
+use Dashed\DashedEcommerceBol\Mail\AdminBolShipmentAbandonedMail;
 
 class Bol
 {
@@ -364,7 +366,7 @@ class Bol
     /**
      * Classify a Bol shipment POST response.
      *
-     * @return 'SUCCESS'|'SHIPPED_ALREADY'|'ERROR'
+     * @return 'SUCCESS'|'SHIPPED_ALREADY'|'CANCELLED'|'ERROR'
      */
     private static function classifyShipmentResponse(array $response): string
     {
@@ -375,6 +377,9 @@ class Bol
         $errorMessage = (string) ($response['errorMessage'] ?? '');
         if (str_contains($errorMessage, 'shipped already')) {
             return 'SHIPPED_ALREADY';
+        }
+        if (str_contains($errorMessage, 'cancelled already')) {
+            return 'CANCELLED';
         }
 
         return 'ERROR';
@@ -391,8 +396,13 @@ class Bol
         array $orderItems,
         string $shipmentReference,
         string $transporterCode,
-        string $trackAndTrace
+        ?string $trackAndTrace
     ): array {
+        $transport = ['transporterCode' => $transporterCode];
+        if ($trackAndTrace !== null && $trackAndTrace !== '') {
+            $transport['trackAndTrace'] = $trackAndTrace;
+        }
+
         $httpResponse = Http::withToken($accessToken)
             ->withHeaders([
                 'Accept' => 'application/vnd.retailer.v10+json',
@@ -402,10 +412,7 @@ class Bol
             ->post(self::APIURL . '/retailer/shipments', [
                 'orderItems' => $orderItems,
                 'shipmentReference' => $shipmentReference,
-                'transport' => [
-                    'transporterCode' => $transporterCode,
-                    'trackAndTrace' => $trackAndTrace,
-                ],
+                'transport' => $transport,
             ]);
 
         $response = $httpResponse->json();
@@ -446,6 +453,17 @@ class Bol
     /** Fulfilmentstatussen waarbij de verzending naar Bol mag. */
     public const SHIPMENT_SYNC_STATUSES = ['shipped', 'handled'];
 
+    /**
+     * Herkansen van een mislukte melding: oplopende tussenpozen in minuten
+     * (daarna elke dag), en na dit aantal pogingen opgeven met een melding
+     * aan de beheerders. Vier bestellingen bij Lovora kregen elk ruim
+     * tienduizend identieke foutregels omdat de kwartierronde eindeloos
+     * doorging op regels die Bol al geannuleerd had.
+     */
+    public const SHIPMENT_MAX_ATTEMPTS = 12;
+
+    public const SHIPMENT_BACKOFF_MINUTES = [15, 30, 60, 120, 240, 480, 960, 1440];
+
     private const TRANSPORTERS = [
         'postnl' => 'TNT',
         'postnl_brief' => 'TNT_BRIEF',
@@ -460,22 +478,33 @@ class Bol
 
     /**
      * Mag de verzending van deze bestelling naar Bol? Alleen een Bol-bestelling
-     * die nog niet gemeld is en op Verzonden of Afgehandeld staat. Of er een
-     * track & trace is, beoordeelt syncShipment() zelf, met een logregel.
+     * die nog niet gemeld is, niet is opgegeven en op Verzonden of Afgehandeld
+     * staat. Zonder track & trace gaat de melding als briefpost, zie
+     * BolTransporter.
      */
     public static function shouldSyncShipment(Order $order): bool
     {
         return (bool) $order->bol_order_id
             && ! $order->bol_shipment_synced
+            && ! $order->bol_shipment_abandoned_at
             && in_array($order->fulfillment_status, self::SHIPMENT_SYNC_STATUSES, true);
     }
 
-    /** Kwartierronde: het vangnet voor een T&T die later binnenkomt dan de status. */
+    /**
+     * Kwartierronde: het vangnet voor een T&T die later binnenkomt dan de
+     * status, en de herkansing van mislukte meldingen zodra hun tussenpoos
+     * voorbij is.
+     */
     public static function syncShipments()
     {
         $orders = Order::where('bol_shipment_synced', 0)
             ->whereNotNull('bol_order_id')
+            ->whereNull('bol_shipment_abandoned_at')
             ->whereIn('fulfillment_status', self::SHIPMENT_SYNC_STATUSES)
+            ->where(function ($query) {
+                $query->whereNull('bol_shipment_next_attempt_at')
+                    ->orWhere('bol_shipment_next_attempt_at', '<=', now());
+            })
             ->get();
 
         foreach ($orders as $order) {
@@ -483,7 +512,22 @@ class Bol
         }
     }
 
-    public static function syncShipment(Order $order)
+    /** Teller en opgave terugzetten, voor een handmatige nieuwe poging. */
+    public static function resetShipmentRetries(Order $order): void
+    {
+        $order->bol_shipment_attempts = 0;
+        $order->bol_shipment_next_attempt_at = null;
+        $order->bol_shipment_abandoned_at = null;
+        $order->save();
+    }
+
+    /**
+     * @param  bool  $retryAfterCancelled  Na het wegstempelen van regels die Bol al
+     *                                     annuleerde één keer opnieuw proberen met de
+     *                                     rest; de recursieve aanroep zet dit op false
+     *                                     zodat het nooit rondloopt.
+     */
+    public static function syncShipment(Order $order, bool $retryAfterCancelled = true)
     {
         // Pas melden als het pakket echt weg is. Een label of track & trace
         // alleen is geen verzending: Bol zag de T&T dagen voordat het pakket
@@ -501,16 +545,20 @@ class Bol
             return;
         }
 
-        // Altijd de nieuwste T&T: bij een nagestuurd pakket is dat de code die telt.
+        // Altijd de nieuwste T&T: bij een nagestuurd pakket is dat de code die
+        // telt. Zonder T&T (briefpost, of een status met de hand gezet) gaat de
+        // melding tóch, met alleen een transporteur: Bol staat dat toe, en een
+        // bestelling die bij Bol op "niet verzonden" blijft staan kost een strike.
         $trackAndTrace = $order->trackAndTraces()->orderByDesc('id')->first();
-        if (! $trackAndTrace) {
-            self::logShipmentSkip($order, 'bestelling staat op verzonden maar heeft nog geen track & trace');
-
-            return;
+        if ($trackAndTrace) {
+            $transporterCode = self::TRANSPORTERS[strtolower((string) $trackAndTrace->delivery_company)] ?? 'OTHER';
+            $trackAndTraceCode = (string) $trackAndTrace->code;
+            $logSuffix = ' (track & trace ' . $trackAndTrace->code . ' via ' . $trackAndTrace->delivery_company . ')';
+        } else {
+            $transporterCode = BolTransporter::withoutTrackAndTrace($order->site_id);
+            $trackAndTraceCode = null;
+            $logSuffix = ' (zonder track & trace, als ' . $transporterCode . ')';
         }
-
-        $transporterCode = self::TRANSPORTERS[strtolower((string) $trackAndTrace->delivery_company)] ?? 'OTHER';
-        $logSuffix = ' (track & trace ' . $trackAndTrace->code . ' via ' . $trackAndTrace->delivery_company . ')';
 
         $bolProducts = self::bolOrderProducts($order);
         if ($bolProducts->isEmpty()) {
@@ -523,9 +571,7 @@ class Bol
         // hooguit één keer, en een herkansing stuurt alleen wat nog open staat.
         $syncableProducts = $bolProducts->whereNull('bol_shipment_synced_at');
         if ($syncableProducts->isEmpty()) {
-            $order->bol_shipment_synced = 1;
-            $order->bol_shipment_error = null;
-            $order->save();
+            self::markShipmentSynced($order);
 
             return;
         }
@@ -535,28 +581,19 @@ class Bol
 
         try {
             if (! $allGrouped) {
-                $initialItems = $syncableProducts->map(fn ($p) => [
-                    'orderItemId' => $p->bol_id,
-                    'quantity' => $p->quantity,
-                ])->values()->all();
-
                 $response = self::sendShipmentGroup(
                     $accessToken,
-                    $initialItems,
+                    self::shipmentItems($syncableProducts),
                     $order->invoice_id,
                     $transporterCode,
-                    $trackAndTrace->code,
+                    $trackAndTraceCode,
                 );
 
                 $classification = self::classifyShipmentResponse($response);
 
                 if ($classification === 'SUCCESS') {
                     self::stampSynced($syncableProducts);
-                    $order->bol_shipment_synced = 1;
-                    $order->bol_shipment_process_id = $response['processStatusId'] ?? null;
-                    $order->bol_shipment_entity_id = $response['entityId'] ?? '';
-                    $order->bol_shipment_error = null;
-                    $order->save();
+                    self::markShipmentSynced($order, $response);
                     OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id . $logSuffix);
 
                     return;
@@ -564,10 +601,19 @@ class Bol
 
                 if ($classification === 'SHIPPED_ALREADY') {
                     self::stampSynced($syncableProducts);
-                    $order->bol_shipment_synced = 1;
-                    $order->bol_shipment_error = null;
-                    $order->save();
+                    self::markShipmentSynced($order);
                     OrderLog::createLog($order->id, note: 'Order was al verzonden op Bol.com, gemarkeerd als synced: ' . $order->bol_order_id);
+
+                    return;
+                }
+
+                if ($classification === 'CANCELLED') {
+                    self::stampCancelled($order, $syncableProducts, (string) ($response['errorMessage'] ?? ''));
+                    if ($retryAfterCancelled) {
+                        self::syncShipment($order->fresh(), false);
+                    } else {
+                        self::registerShipmentFailure($order, (string) ($response['errorMessage'] ?? 'Onbekende fout'));
+                    }
 
                     return;
                 }
@@ -575,9 +621,7 @@ class Bol
                 // ERROR - attempt to parse split signature.
                 $splitGroups = self::parseBolSplitError((string) ($response['errorMessage'] ?? ''));
                 if ($splitGroups === null) {
-                    $order->bol_shipment_error = $response['errorMessage'] ?? 'Onbekende fout';
-                    $order->save();
-                    OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+                    self::registerShipmentFailure($order, (string) ($response['errorMessage'] ?? 'Onbekende fout'));
 
                     return;
                 }
@@ -606,60 +650,147 @@ class Bol
                 ->groupBy('bol_shipment_group_index');
 
             $errors = [];
-            $lastProcessId = null;
-            $lastEntityId = null;
+            $cancelledSeen = false;
+            $lastResponse = [];
 
             foreach ($groups as $groupIndex => $products) {
-                $items = $products->map(fn ($p) => [
-                    'orderItemId' => $p->bol_id,
-                    'quantity' => $p->quantity,
-                ])->values()->all();
-
                 $response = self::sendShipmentGroup(
                     $accessToken,
-                    $items,
+                    self::shipmentItems($products),
                     $order->invoice_id,
                     $transporterCode,
-                    $trackAndTrace->code,
+                    $trackAndTraceCode,
                 );
 
                 $classification = self::classifyShipmentResponse($response);
 
                 if ($classification === 'SUCCESS') {
                     self::stampSynced($products);
-                    $lastProcessId = $response['processStatusId'] ?? $lastProcessId;
-                    $lastEntityId = $response['entityId'] ?? $lastEntityId;
+                    $lastResponse = $response;
                     OrderLog::createLog($order->id, note: 'Verzending (groep ' . $groupIndex . ') gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id . $logSuffix);
                 } elseif ($classification === 'SHIPPED_ALREADY') {
                     self::stampSynced($products);
                     OrderLog::createLog($order->id, note: 'Groep ' . $groupIndex . ' was al verzonden op Bol.com, overgeslagen voor order ID ' . $order->bol_order_id);
+                } elseif ($classification === 'CANCELLED') {
+                    self::stampCancelled($order, $products, (string) ($response['errorMessage'] ?? ''));
+                    $cancelledSeen = true;
                 } else {
-                    $msg = 'groep ' . $groupIndex . ': ' . ($response['errorMessage'] ?? 'Onbekende fout');
-                    $errors[] = $msg;
-                    OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending (groep ' . $groupIndex . ') met Bol.com voor order ID ' . $order->bol_order_id . ': ' . ($response['errorMessage'] ?? 'Onbekende fout'));
+                    $errors[] = 'groep ' . $groupIndex . ': ' . ($response['errorMessage'] ?? 'Onbekende fout');
                 }
             }
 
-            if (empty($errors)) {
-                $order->bol_shipment_synced = 1;
-                $order->bol_shipment_error = null;
-                if ($lastProcessId !== null) {
-                    $order->bol_shipment_process_id = $lastProcessId;
-                }
-                if ($lastEntityId !== null) {
-                    $order->bol_shipment_entity_id = $lastEntityId;
-                }
-                $order->save();
-            } else {
-                $order->bol_shipment_synced = 0;
-                $order->bol_shipment_error = implode('; ', $errors);
-                $order->save();
+            if ($errors !== []) {
+                self::registerShipmentFailure($order, implode('; ', $errors));
+
+                return;
+            }
+
+            if (self::bolOrderProducts($order)->whereNull('bol_shipment_synced_at')->isEmpty()) {
+                self::markShipmentSynced($order, $lastResponse);
+
+                return;
+            }
+
+            // Binnen een groep bleef iets open na een annulering: de rest nog één keer.
+            if ($cancelledSeen && $retryAfterCancelled) {
+                self::syncShipment($order->fresh(), false);
             }
         } catch (\Illuminate\Http\Client\RequestException $e) {
-            $order->bol_shipment_error = $e->getMessage();
-            $order->save();
-            OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+            self::registerShipmentFailure($order, $e->getMessage());
         }
+    }
+
+    /** @return array<int, array{orderItemId: string, quantity: int}> */
+    private static function shipmentItems(\Illuminate\Support\Collection $products): array
+    {
+        return $products->map(fn ($p) => [
+            'orderItemId' => $p->bol_id,
+            'quantity' => $p->quantity,
+        ])->values()->all();
+    }
+
+    /** Alles gemeld: vlag om, foutstaat en herkansingsteller leeg. */
+    private static function markShipmentSynced(Order $order, array $response = []): void
+    {
+        $order->bol_shipment_synced = 1;
+        $order->bol_shipment_error = null;
+        $order->bol_shipment_attempts = 0;
+        $order->bol_shipment_next_attempt_at = null;
+        $order->bol_shipment_abandoned_at = null;
+        if (isset($response['processStatusId'])) {
+            $order->bol_shipment_process_id = $response['processStatusId'];
+        }
+        if (isset($response['entityId'])) {
+            $order->bol_shipment_entity_id = $response['entityId'];
+        }
+        $order->save();
+    }
+
+    /**
+     * Een mislukte poging vastleggen: de fout komt één keer in de tijdlijn
+     * (alleen als hij anders is dan de vorige), de volgende poging schuift op
+     * met oplopende tussenpoos, en na het maximum wordt opgegeven met één
+     * logregel en een mail aan de beheerders.
+     */
+    private static function registerShipmentFailure(Order $order, string $message): void
+    {
+        $attempts = (int) $order->bol_shipment_attempts + 1;
+        $changed = $order->bol_shipment_error !== $message;
+
+        $order->bol_shipment_synced = 0;
+        $order->bol_shipment_error = $message;
+        $order->bol_shipment_attempts = $attempts;
+
+        if ($attempts >= self::SHIPMENT_MAX_ATTEMPTS) {
+            $order->bol_shipment_next_attempt_at = null;
+            $order->bol_shipment_abandoned_at = now();
+            $order->save();
+
+            OrderLog::createLog($order->id, 'order.bol-shipment-abandoned', 'Melden van de verzending aan Bol.com opgegeven na ' . $attempts . ' pogingen voor order ID ' . $order->bol_order_id . ': ' . $message . '. Opnieuw proberen met bol:sync-shipments-to-bol --order=' . $order->id);
+
+            $recipients = BolAdminRecipients::for($order->site_id);
+            if ($recipients !== []) {
+                rescue(fn () => AdminNotifier::send(new AdminBolShipmentAbandonedMail($order, $message, $attempts), $recipients), null, true);
+            }
+
+            return;
+        }
+
+        $minutes = self::SHIPMENT_BACKOFF_MINUTES[min($attempts, count(self::SHIPMENT_BACKOFF_MINUTES)) - 1];
+        $order->bol_shipment_next_attempt_at = now()->addMinutes($minutes);
+        $order->save();
+
+        if ($changed) {
+            OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $message);
+        }
+    }
+
+    /**
+     * Regels die Bol al geannuleerd heeft tellen als afgehandeld: ze kunnen
+     * nooit meer als verzonden gemeld worden, en zonder stempel bood de
+     * kwartierronde ze eindeloos opnieuw aan. Noemt Bol regelnummers, dan
+     * alleen die; anders alle regels van dit verzoek.
+     */
+    private static function stampCancelled(Order $order, \Illuminate\Support\Collection $products, string $message): void
+    {
+        $ids = self::parseCancelledItemIds($message);
+        $affected = $ids === [] ? $products : $products->filter(fn ($p) => in_array((string) $p->bol_id, $ids, true));
+        if ($affected->isEmpty()) {
+            $affected = $products;
+        }
+
+        self::stampSynced($affected);
+
+        OrderLog::createLog($order->id, note: 'Regel(s) ' . $affected->pluck('bol_id')->implode(', ') . ' zijn al geannuleerd bij Bol.com en worden niet als verzonden gemeld voor order ID ' . $order->bol_order_id);
+    }
+
+    /** @return array<int, string> */
+    private static function parseCancelledItemIds(string $message): array
+    {
+        $after = (string) strstr($message, 'cancelled already');
+        preg_match_all('/\d+/', $after, $matches);
+
+        return array_values(array_unique($matches[0]));
     }
 
     /** Vers uit de database, want de stempels en groepsindices van zojuist moeten meetellen. */

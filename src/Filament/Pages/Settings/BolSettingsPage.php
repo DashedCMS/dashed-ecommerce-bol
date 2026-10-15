@@ -17,6 +17,7 @@ use Dashed\DashedCore\Models\Customsetting;
 use Filament\Infolists\Components\TextEntry;
 use Dashed\DashedCore\Traits\HasSettingsPermission;
 use Dashed\DashedEcommerceCore\Models\ProductGroup;
+use Dashed\DashedEcommerceBol\Classes\BolTransporter;
 use Dashed\DashedEcommerceBol\Classes\BolDeliveryCode;
 use Dashed\DashedEcommerceBol\Classes\BolTitleGenerator;
 use Dashed\DashedEcommerceBol\Jobs\GenerateBolTitlesJob;
@@ -50,6 +51,7 @@ class BolSettingsPage extends Page
             $formData["bol_title_instructions_{$site['id']}"] = Customsetting::get('bol_title_instructions', $site['id']);
             $formData["bol_delivery_code_pre_order_{$site['id']}"] = BolDeliveryCode::preOrderCode($site['id']);
             $formData["bol_delivery_code_default_{$site['id']}"] = BolDeliveryCode::defaultCode($site['id']);
+            $formData["bol_transporter_without_tnt_{$site['id']}"] = BolTransporter::withoutTrackAndTrace($site['id']);
         }
 
         $this->form->fill($formData);
@@ -107,6 +109,12 @@ class BolSettingsPage extends Page
                     ->helperText(__('Leeg laten om de levertijd te houden die nu in Channable of op Bol staat.'))
                     ->options(BolDeliveryCode::options())
                     ->nullable(),
+                Select::make("bol_transporter_without_tnt_{$site['id']}")
+                    ->label(__('Transporteur voor zendingen zonder track & trace'))
+                    ->helperText(__('Gaat een Bol-bestelling op Verzonden zonder track & trace (briefpost), dan wordt de verzending met deze transporteur aan Bol gemeld.'))
+                    ->options(BolTransporter::options())
+                    ->default(BolTransporter::DEFAULT_WITHOUT_TNT)
+                    ->required(),
             ];
 
             $tabs[] = Tab::make($site['id'])
@@ -136,6 +144,7 @@ class BolSettingsPage extends Page
             Customsetting::set('bol_title_instructions', $this->form->getState()["bol_title_instructions_{$site['id']}"] ?? null, $site['id']);
             Customsetting::set(BolDeliveryCode::SETTING_PRE_ORDER, $this->form->getState()["bol_delivery_code_pre_order_{$site['id']}"] ?? BolDeliveryCode::DEFAULT_PRE_ORDER, $site['id']);
             Customsetting::set(BolDeliveryCode::SETTING_DEFAULT, $this->form->getState()["bol_delivery_code_default_{$site['id']}"] ?: null, $site['id']);
+            Customsetting::set(BolTransporter::SETTING_WITHOUT_TNT, $this->form->getState()["bol_transporter_without_tnt_{$site['id']}"] ?? BolTransporter::DEFAULT_WITHOUT_TNT, $site['id']);
         }
 
         Notification::make()

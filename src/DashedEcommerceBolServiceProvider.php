@@ -11,6 +11,7 @@ use Dashed\DashedEcommerceBol\Commands\SyncShipmentsToBol;
 use Dashed\DashedEcommerceBol\Commands\SyncBolReturnsCommand;
 use Dashed\DashedEcommerceBol\Commands\SyncOrdersFromBolCommand;
 use Dashed\DashedEcommerceBol\Filament\Pages\Settings\BolSettingsPage;
+use Dashed\DashedEcommerceBol\Commands\PruneBolShipmentErrorLogsCommand;
 
 class DashedEcommerceBolServiceProvider extends PackageServiceProvider
 {
@@ -235,6 +236,7 @@ MARKDOWN,
                 SyncOrdersFromBolCommand::class,
                 RefreshBolToken::class,
                 SyncShipmentsToBol::class,
+                PruneBolShipmentErrorLogsCommand::class,
                 SyncBolReturnsCommand::class,
                 \Dashed\DashedEcommerceBol\Commands\ExcludeBolCustomersFromNewsletter::class,
             ]);
