@@ -68,6 +68,45 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
             }
         }
 
+        // De verzending gaat pas naar Bol als de bestelling echt verzonden of
+        // afgehandeld is én een track & trace heeft. Een label of T&T alleen
+        // zet niets klaar: Bol zag de code anders dagen voor het pakket en
+        // rekende die dagen als te laat geleverd (de strikes van Lovora). De
+        // statuswissel en een later binnenkomende T&T zetten allebei dezelfde
+        // unieke job klaar; de kwartierronde blijft het vangnet. Binnen
+        // rescue(): een wachtrij die de job niet aanneemt mag de statuswissel
+        // zelf niet omgooien.
+        $queueShipmentSync = function (?\Dashed\DashedEcommerceCore\Models\Order $order): void {
+            if ($order && \Dashed\DashedEcommerceBol\Classes\Bol::shouldSyncShipment($order)) {
+                rescue(function () use ($order): void {
+                    $pending = \Dashed\DashedEcommerceBol\Jobs\SyncBolShipmentJob::dispatch($order);
+                    unset($pending);
+                });
+            }
+        };
+
+        if (class_exists(\Dashed\DashedEcommerceCore\Events\Orders\OrderFulfillmentStatusChangedEvent::class)) {
+            \Illuminate\Support\Facades\Event::listen(
+                \Dashed\DashedEcommerceCore\Events\Orders\OrderFulfillmentStatusChangedEvent::class,
+                function ($event) use ($queueShipmentSync): void {
+                    if (in_array($event->newStatus, \Dashed\DashedEcommerceBol\Classes\Bol::SHIPMENT_SYNC_STATUSES, true)) {
+                        $queueShipmentSync($event->order);
+                    }
+                },
+            );
+        }
+
+        \Illuminate\Support\Facades\Event::listen(
+            'eloquent.created: ' . \Dashed\DashedEcommerceCore\Models\OrderTrackAndTrace::class,
+            fn (\Dashed\DashedEcommerceCore\Models\OrderTrackAndTrace $trackAndTrace) => $queueShipmentSync($trackAndTrace->order),
+        );
+
+        // Levertijd op Bol als feedveld, zodat Channable die op het aanbod zet;
+        // zie BolDeliveryCode. Via de haak van ec-core, die Bol niet kent.
+        ecommerce()->builder('productFeedFields', [
+            'bol_delivery_code' => fn (\Dashed\DashedEcommerceCore\Models\Product $product) => \Dashed\DashedEcommerceBol\Classes\BolDeliveryCode::forProduct($product),
+        ]);
+
         if (class_exists(\Dashed\DashedEcommerceCore\Filament\Resources\OrderReturnResource\Actions\ReturnActionExtensions::class)) {
             foreach (['close', 'reject'] as $action) {
                 \Dashed\DashedEcommerceCore\Filament\Resources\OrderReturnResource\Actions\ReturnActionExtensions::register(

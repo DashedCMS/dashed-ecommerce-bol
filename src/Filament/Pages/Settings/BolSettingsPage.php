@@ -6,6 +6,7 @@ use Filament\Pages\Page;
 use Filament\Actions\Action;
 use Filament\Schemas\Schema;
 use Dashed\DashedCore\Classes\Sites;
+use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Tabs;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -16,6 +17,7 @@ use Dashed\DashedCore\Models\Customsetting;
 use Filament\Infolists\Components\TextEntry;
 use Dashed\DashedCore\Traits\HasSettingsPermission;
 use Dashed\DashedEcommerceCore\Models\ProductGroup;
+use Dashed\DashedEcommerceBol\Classes\BolDeliveryCode;
 use Dashed\DashedEcommerceBol\Classes\BolTitleGenerator;
 use Dashed\DashedEcommerceBol\Jobs\GenerateBolTitlesJob;
 
@@ -46,6 +48,8 @@ class BolSettingsPage extends Page
             $formData["bol_connected_{$site['id']}"] = Customsetting::get('bol_connected', $site['id'], 0) ? true : false;
             $formData["bol_title_brand_{$site['id']}"] = Customsetting::get('bol_title_brand', $site['id']);
             $formData["bol_title_instructions_{$site['id']}"] = Customsetting::get('bol_title_instructions', $site['id']);
+            $formData["bol_delivery_code_pre_order_{$site['id']}"] = BolDeliveryCode::preOrderCode($site['id']);
+            $formData["bol_delivery_code_default_{$site['id']}"] = BolDeliveryCode::defaultCode($site['id']);
         }
 
         $this->form->fill($formData);
@@ -92,6 +96,17 @@ class BolSettingsPage extends Page
                         'default' => 1,
                         'lg' => 2,
                     ]),
+                Select::make("bol_delivery_code_pre_order_{$site['id']}")
+                    ->label(__('Levertijd op Bol voor pre-order producten'))
+                    ->helperText(__('Voor producten zonder directe voorraad die wel besteld kunnen worden (print-on-demand). Gaat als veld bol_delivery_code mee in de productfeed; koppel dat veld in Channable aan de levertijd van het Bol-aanbod.'))
+                    ->options(BolDeliveryCode::options())
+                    ->default(BolDeliveryCode::DEFAULT_PRE_ORDER)
+                    ->required(),
+                Select::make("bol_delivery_code_default_{$site['id']}")
+                    ->label(__('Levertijd op Bol voor overige producten'))
+                    ->helperText(__('Leeg laten om de levertijd te houden die nu in Channable of op Bol staat.'))
+                    ->options(BolDeliveryCode::options())
+                    ->nullable(),
             ];
 
             $tabs[] = Tab::make($site['id'])
@@ -119,6 +134,8 @@ class BolSettingsPage extends Page
             Customsetting::set('bol_connected', Bol::isConnected($site['id']), $site['id']);
             Customsetting::set('bol_title_brand', $this->form->getState()["bol_title_brand_{$site['id']}"] ?? null, $site['id']);
             Customsetting::set('bol_title_instructions', $this->form->getState()["bol_title_instructions_{$site['id']}"] ?? null, $site['id']);
+            Customsetting::set(BolDeliveryCode::SETTING_PRE_ORDER, $this->form->getState()["bol_delivery_code_pre_order_{$site['id']}"] ?? BolDeliveryCode::DEFAULT_PRE_ORDER, $site['id']);
+            Customsetting::set(BolDeliveryCode::SETTING_DEFAULT, $this->form->getState()["bol_delivery_code_default_{$site['id']}"] ?: null, $site['id']);
         }
 
         Notification::make()

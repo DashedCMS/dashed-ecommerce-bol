@@ -2,6 +2,7 @@
 
 namespace Dashed\DashedEcommerceBol\Classes;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Dashed\DashedCore\Classes\Sites;
 use Illuminate\Support\Facades\Http;
@@ -309,6 +310,8 @@ class Bol
                 OssVat::recalculateOrderVat($order);
             }
 
+            rescue(fn () => self::logMixedOrderNotice($order, $response['orderItems'] ?? []));
+
             if ($orderContainsPreOrders) {
                 $order->contains_pre_orders = true;
                 $order->save();
@@ -440,16 +443,55 @@ class Bol
         return $response;
     }
 
+    /** Fulfilmentstatussen waarbij de verzending naar Bol mag. */
+    public const SHIPMENT_SYNC_STATUSES = ['shipped', 'handled'];
+
+    private const TRANSPORTERS = [
+        'postnl' => 'TNT',
+        'postnl_brief' => 'TNT_BRIEF',
+        'dhl' => 'DHL',
+        'dhlforyou' => 'DHLFORYOU',
+        'dpd_nl' => 'DPD-NL',
+        'dpd_be' => 'DPD-BE',
+        'bpost' => 'BPOST_BE',
+        'gls' => 'GLS',
+        'ups' => 'UPS',
+    ];
+
+    /**
+     * Mag de verzending van deze bestelling naar Bol? Alleen een Bol-bestelling
+     * die nog niet gemeld is en op Verzonden of Afgehandeld staat. Of er een
+     * track & trace is, beoordeelt syncShipment() zelf, met een logregel.
+     */
+    public static function shouldSyncShipment(Order $order): bool
+    {
+        return (bool) $order->bol_order_id
+            && ! $order->bol_shipment_synced
+            && in_array($order->fulfillment_status, self::SHIPMENT_SYNC_STATUSES, true);
+    }
+
+    /** Kwartierronde: het vangnet voor een T&T die later binnenkomt dan de status. */
     public static function syncShipments()
     {
-        foreach (Order::where('bol_shipment_synced', 0)->whereNotNull('bol_order_id')->get() as $order) {
+        $orders = Order::where('bol_shipment_synced', 0)
+            ->whereNotNull('bol_order_id')
+            ->whereIn('fulfillment_status', self::SHIPMENT_SYNC_STATUSES)
+            ->get();
+
+        foreach ($orders as $order) {
             self::syncShipment($order);
         }
     }
 
     public static function syncShipment(Order $order)
     {
-        // Sync de track & trace zodra die er is, ongeacht de orderstatus.
+        // Pas melden als het pakket echt weg is. Een label of track & trace
+        // alleen is geen verzending: Bol zag de T&T dagen voordat het pakket
+        // de deur uit ging en rekende die dagen als te laat geleverd.
+        if (! in_array($order->fulfillment_status, self::SHIPMENT_SYNC_STATUSES, true)) {
+            return;
+        }
+
         self::refreshToken($order->site_id);
 
         $accessToken = Customsetting::get('bol_access_token', $order->site_id);
@@ -459,36 +501,36 @@ class Bol
             return;
         }
 
-        if (! $order->trackAndTraces->count()) {
-            self::logShipmentSkip($order, 'order heeft nog geen track & trace');
+        // Altijd de nieuwste T&T: bij een nagestuurd pakket is dat de code die telt.
+        $trackAndTrace = $order->trackAndTraces()->orderByDesc('id')->first();
+        if (! $trackAndTrace) {
+            self::logShipmentSkip($order, 'bestelling staat op verzonden maar heeft nog geen track & trace');
 
             return;
         }
 
-        $trackAndTrace = $order->trackAndTraces->last();
+        $transporterCode = self::TRANSPORTERS[strtolower((string) $trackAndTrace->delivery_company)] ?? 'OTHER';
+        $logSuffix = ' (track & trace ' . $trackAndTrace->code . ' via ' . $trackAndTrace->delivery_company . ')';
 
-        $transporters = [
-            'postnl' => 'TNT',
-            'postnl_brief' => 'TNT_BRIEF',
-            'dhl' => 'DHL',
-            'dhlforyou' => 'DHLFORYOU',
-            'dpd_nl' => 'DPD-NL',
-            'dpd_be' => 'DPD-BE',
-            'bpost' => 'BPOST_BE',
-            'gls' => 'GLS',
-            'ups' => 'UPS',
-        ];
-        $deliveryKey = strtolower($trackAndTrace->delivery_company);
-        $transporterCode = $transporters[$deliveryKey] ?? 'OTHER';
-
-        $syncableProducts = $order->orderProducts->filter(fn ($p) => (bool) $p->bol_id);
-        if ($syncableProducts->isEmpty()) {
+        $bolProducts = self::bolOrderProducts($order);
+        if ($bolProducts->isEmpty()) {
             self::logShipmentSkip($order, 'geen orderregels met een Bol-ID');
 
             return;
         }
 
-        // Mode: split if every syncable product already has a cached group index, else initial.
+        // Per regel een stempel zodra Bol de verzending heeft: een groep gaat
+        // hooguit één keer, en een herkansing stuurt alleen wat nog open staat.
+        $syncableProducts = $bolProducts->whereNull('bol_shipment_synced_at');
+        if ($syncableProducts->isEmpty()) {
+            $order->bol_shipment_synced = 1;
+            $order->bol_shipment_error = null;
+            $order->save();
+
+            return;
+        }
+
+        // Mode: split if every open product already has a cached group index, else initial.
         $allGrouped = $syncableProducts->every(fn ($p) => $p->bol_shipment_group_index !== null);
 
         try {
@@ -509,17 +551,19 @@ class Bol
                 $classification = self::classifyShipmentResponse($response);
 
                 if ($classification === 'SUCCESS') {
+                    self::stampSynced($syncableProducts);
                     $order->bol_shipment_synced = 1;
                     $order->bol_shipment_process_id = $response['processStatusId'] ?? null;
                     $order->bol_shipment_entity_id = $response['entityId'] ?? '';
                     $order->bol_shipment_error = null;
                     $order->save();
-                    OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id);
+                    OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id . $logSuffix);
 
                     return;
                 }
 
                 if ($classification === 'SHIPPED_ALREADY') {
+                    self::stampSynced($syncableProducts);
                     $order->bol_shipment_synced = 1;
                     $order->bol_shipment_error = null;
                     $order->save();
@@ -553,10 +597,10 @@ class Bol
                     }
                 }
 
-                $syncableProducts = $order->fresh('orderProducts')->orderProducts->filter(fn ($p) => (bool) $p->bol_id);
+                $syncableProducts = self::bolOrderProducts($order)->whereNull('bol_shipment_synced_at');
             }
 
-            // Split mode: send one shipment per group.
+            // Split mode: send one shipment per open group.
             $groups = $syncableProducts
                 ->filter(fn ($p) => $p->bol_shipment_group_index !== null)
                 ->groupBy('bol_shipment_group_index');
@@ -582,10 +626,12 @@ class Bol
                 $classification = self::classifyShipmentResponse($response);
 
                 if ($classification === 'SUCCESS') {
+                    self::stampSynced($products);
                     $lastProcessId = $response['processStatusId'] ?? $lastProcessId;
                     $lastEntityId = $response['entityId'] ?? $lastEntityId;
-                    OrderLog::createLog($order->id, note: 'Verzending (groep ' . $groupIndex . ') gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id);
+                    OrderLog::createLog($order->id, note: 'Verzending (groep ' . $groupIndex . ') gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id . $logSuffix);
                 } elseif ($classification === 'SHIPPED_ALREADY') {
+                    self::stampSynced($products);
                     OrderLog::createLog($order->id, note: 'Groep ' . $groupIndex . ' was al verzonden op Bol.com, overgeslagen voor order ID ' . $order->bol_order_id);
                 } else {
                     $msg = 'groep ' . $groupIndex . ': ' . ($response['errorMessage'] ?? 'Onbekende fout');
@@ -616,6 +662,20 @@ class Bol
         }
     }
 
+    /** Vers uit de database, want de stempels en groepsindices van zojuist moeten meetellen. */
+    private static function bolOrderProducts(Order $order): \Illuminate\Support\Collection
+    {
+        return $order->orderProducts()->get()->filter(fn ($p) => (bool) $p->bol_id)->values();
+    }
+
+    private static function stampSynced(\Illuminate\Support\Collection $products): void
+    {
+        foreach ($products as $product) {
+            $product->bol_shipment_synced_at = now();
+            $product->save();
+        }
+    }
+
     /**
      * Record why an order was not synced to Bol: store the reason on the order and
      * write an OrderLog. Only logs when the reason changed since the previous
@@ -633,95 +693,49 @@ class Bol
         OrderLog::createLog($order->id, note: 'Niet naar Bol.com gesynchroniseerd voor order ID ' . $order->bol_order_id . ': ' . $reason);
     }
 
-    public static function updateShipment(Order $order)
+    /**
+     * Een Bol-order met voorraad- én pre-orderregels: waarschuw in de tijdlijn
+     * met per regel de leverdatum die Bol de klant beloofde, zodat de
+     * voorraadregels niet stilzwijgend meewachten op de pre-order.
+     *
+     * @param  array<int, array<string, mixed>>  $orderItems  De orderItems uit het Bol-antwoord.
+     */
+    public static function logMixedOrderNotice(Order $order, array $orderItems): void
     {
-        self::refreshToken($order->site_id);
+        $lines = self::bolOrderProducts($order);
 
-        $accessToken = Customsetting::get('bol_access_token', $order->site_id);
-        if ($accessToken && $order->trackAndTraces->count()) {
-            $trackAndTrace = $order->trackAndTraces->last();
+        $hasPreOrder = $lines->contains(fn ($line) => (bool) $line->is_pre_order);
+        $hasStock = $lines->contains(fn ($line) => ! $line->is_pre_order);
+        if (! $hasPreOrder || ! $hasStock) {
+            return;
+        }
 
-            $transporters = [
-                'postnl' => 'TNT',
-                'postnl_brief' => 'TNT_BRIEF',
-                'dhl' => 'DHL',
-                'dhlforyou' => 'DHLFORYOU',
-                'dpd_nl' => 'DPD-NL',
-                'dpd_be' => 'DPD-BE',
-                'bpost' => 'BPOST_BE',
-                'gls' => 'GLS',
-                'ups' => 'UPS',
-            ];
+        $promised = collect($orderItems)->mapWithKeys(fn ($item) => [
+            (string) ($item['orderItemId'] ?? '') => $item['fulfilment']['latestDeliveryDate'] ?? null,
+        ]);
 
-            $deliveryKey = strtolower($trackAndTrace->delivery_company);
-            $transporterCode = $transporters[$deliveryKey] ?? 'OTHER';
+        $format = fn (?string $date) => $date ? Carbon::parse($date)->format('d-m-Y') : 'onbekend';
 
-            dump($trackAndTrace->code);
+        $parts = $lines->map(function ($line) use ($promised, $format) {
+            $text = $line->name . ' (' . $line->quantity . 'x): ';
+            $deadline = $format($promised[(string) $line->bol_id] ?? null);
 
-            try {
-                //                $response = Http::withToken($accessToken)
-                //                    ->withHeaders([
-                //                        'Accept' => 'application/vnd.retailer.v10+json',
-                //                        'Content-Type' => 'application/vnd.retailer.v10+json',
-                //                    ])
-                //                    ->retry(3)
-                //                    ->put(self::APIURL . '/retailer/transports/' . $order->bol_shipment_process_id, [
-                //                        'transporterCode' => $transporterCode,
-                //                        'trackAndTrace' => $trackAndTrace->code
-                //                    ])
-                //                ->json();
-                //                dump($response);
-                //
-
-                while ($response['status'] == 'PENDING') {
-                    sleep(2);
-                    $response = Http::withToken($accessToken)
-                        ->withHeaders([
-                            'Accept' => 'application/vnd.retailer.v10+json',
-                            'Content-Type' => 'application/vnd.retailer.v10+json',
-                        ])
-                        ->retry(3)
-                        ->get(self::APIURL . '/retailer/process-status/' . $order->bol_shipment_process_id)
-                        ->json();
-                    dump($response);
+            if ($line->is_pre_order) {
+                $text .= 'pre-order';
+                if ($line->pre_order_restocked_date) {
+                    $text .= ', verwacht ' . $format((string) $line->pre_order_restocked_date);
                 }
 
-                //                if($response['links'][0]['href'] ?? false){
-                //                    dump($response['links'][0]['href']);
-                $response = Http::withToken($accessToken)
-                    ->withHeaders([
-                        'Accept' => 'application/vnd.retailer.v10+json',
-                        'Content-Type' => 'application/vnd.retailer.v10+json',
-                    ])
-                    ->retry(3)
-                    ->get('https://api.bol.com/shared/process-status/144982631737')
-//                        ->get($response['links'][0]['href'])
-                    ->json();
-                dd($response, 'test');
-                //                }
-                dd($response);
-
-                if ($response['status'] == 'SUCCESS') {
-                    $order->bol_shipment_synced = 1;
-                    $order->bol_shipment_process_id = $response['processStatusId'];
-                    $order->bol_shipment_entity_id = $response['entityId'];
-                    $order->save();
-
-                    OrderLog::createLog($order->id, note: 'Verzending gesynchroniseerd met Bol.com voor order ID ' . $order->bol_order_id);
-                } else {
-                    $order->bol_shipment_error = $response['errorMessage'] ?? 'Onbekende fout';
-                    $order->save();
-
-                    OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
-                }
-            } catch (\Illuminate\Http\Client\RequestException $e) {
-                dd($e);
-                $order->bol_shipment_error = $e->getMessage();
-                $order->save();
-
-                OrderLog::createLog($order->id, note: 'Fout bij synchroniseren van verzending met Bol.com voor order ID ' . $order->bol_order_id . ': ' . $order->bol_shipment_error);
+                return $text . ', Bol belooft uiterlijk ' . $deadline;
             }
 
-        }
+            return $text . 'voorraad, uiterlijk ' . $deadline;
+        });
+
+        OrderLog::createLog(
+            $order->id,
+            'order.bol.mixed-order',
+            'Let op: gemengde Bol-order met voorraad- en pre-orderregels. Verstuur de voorraadregels op tijd en laat ze niet wachten op de pre-order. Per regel: ' . $parts->implode('; ') . '.',
+        );
     }
 }
