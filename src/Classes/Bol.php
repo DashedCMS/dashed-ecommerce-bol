@@ -27,6 +27,17 @@ class Bol
     // één burst overspoelen (minder kans op rate-limits / 504 gateway timeouts).
     public const REQUEST_THROTTLE_MICROSECONDS = 300000;
 
+    /**
+     * Meldt een gelukte of mislukte synchronisatie aan het scherm Koppelingen
+     * van dashed-core. Een oudere dashed-core kent dat logboek niet.
+     */
+    private static function reportSync(bool $ok, ?string $message, ?string $siteId): void
+    {
+        if (class_exists(\Dashed\DashedCore\Integrations\IntegrationEvents::class)) {
+            \Dashed\DashedCore\Integrations\IntegrationEvents::record('bol', $ok, $message, $siteId);
+        }
+    }
+
     public static function isConnected(?string $siteId = null): bool
     {
         if (! $siteId) {
@@ -145,6 +156,7 @@ class Bol
                         ->json();
                 } catch (\Exception $e) {
                     $bolOrdersResultCount = 0;
+                    self::reportSync(false, 'Bestellingen ophalen: ' . $e->getMessage(), $siteId);
                 }
 
                 if (isset($response['orders'])) {
@@ -164,7 +176,14 @@ class Bol
                 usleep(self::REQUEST_THROTTLE_MICROSECONDS);
             }
 
+            self::reportSync(true, count($bolOrders) . ' bestellingen opgehaald', $siteId);
+
             return $bolOrders;
+        }
+
+        // Zonder ingestelde koppeling is er niets misgegaan, alleen niets te doen.
+        if (Customsetting::get('bol_client_id', $siteId)) {
+            self::reportSync(false, 'Geen toegangstoken: ' . (Customsetting::get('bol_connection_error', $siteId) ?: 'onbekende fout'), $siteId);
         }
 
         return [];
@@ -715,6 +734,8 @@ class Bol
     /** Alles gemeld: vlag om, foutstaat en herkansingsteller leeg. */
     private static function markShipmentSynced(Order $order, array $response = []): void
     {
+        self::reportSync(true, 'Verzending gemeld voor order ' . $order->bol_order_id, $order->site_id);
+
         $order->bol_shipment_synced = 1;
         $order->bol_shipment_error = null;
         $order->bol_shipment_attempts = 0;
@@ -737,6 +758,8 @@ class Bol
      */
     private static function registerShipmentFailure(Order $order, string $message): void
     {
+        self::reportSync(false, 'Verzending order ' . $order->bol_order_id . ': ' . $message, $order->site_id);
+
         $attempts = (int) $order->bol_shipment_attempts + 1;
         $changed = $order->bol_shipment_error !== $message;
 
