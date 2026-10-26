@@ -249,6 +249,9 @@ class Bol
             $order->gender = $response['shipmentDetails']['salutation'] ?? '';
             $order->locale = Locales::getFirstLocale()['id'];
             $order->invoice_id = 'PROFORMA';
+            if (Customsetting::get('bol_orders_priority', $siteId, 0)) {
+                $order->is_priority = true;
+            }
             $order->save();
 
             $orderContainsPreOrders = false;

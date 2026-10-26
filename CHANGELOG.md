@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.12.0 - 2026-10-26
+
+### Added
+- **Bol-bestellingen direct als prioriteit.** Nieuwe schakelaar per site op Instellingen, Bol: "Bol-bestellingen direct als prioriteit markeren". Staat hij aan, dan krijgt elke nieuw binnengehaalde Bol-order meteen `is_priority`. Bestaande orders blijven ongemoeid. Vereist dashed-ecommerce-core met de kolom `is_priority` (september 2026).
+
 ## v4.8.0 - 2026-10-05
 
 ### Changed

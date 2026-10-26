@@ -109,5 +109,7 @@
     "Voorbeeld: :voorbeeld": "Example: :voorbeeld",
     "Voorbeelden": "Examples",
     "Voor producten zonder directe voorraad die wel besteld kunnen worden (print-on-demand). Gaat als veld bol_delivery_code mee in de productfeed; koppel dat veld in Channable aan de levertijd van het Bol-aanbod.": "For products without direct stock that can still be ordered (print-on-demand). Goes into the product feed as the field bol_delivery_code; map that field in Channable to the delivery time of the Bol offer.",
-    "Wordt gebruikt als een productgroep geen kenmerk of filter Merk heeft.": "Used when a product group has no Brand characteristic or filter."
+    "Wordt gebruikt als een productgroep geen kenmerk of filter Merk heeft.": "Used when a product group has no Brand characteristic or filter.",
+    "Bol-bestellingen direct als prioriteit markeren": "Mark Bol orders as priority right away",
+    "Nieuwe bestellingen vanuit Bol krijgen meteen het vinkje Prioriteit, zodat ze bovenaan de open bestellingen staan.": "New orders from Bol are marked as priority right away, so they show up at the top of the open orders."
 }

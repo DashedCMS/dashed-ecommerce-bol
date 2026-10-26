@@ -7,6 +7,7 @@ use Filament\Actions\Action;
 use Filament\Schemas\Schema;
 use Dashed\DashedCore\Classes\Sites;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Tabs;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -53,6 +54,7 @@ class BolSettingsPage extends Page
             $formData["bol_delivery_code_pre_order_{$site['id']}"] = BolDeliveryCode::preOrderCode($site['id']);
             $formData["bol_delivery_code_default_{$site['id']}"] = BolDeliveryCode::defaultCode($site['id']);
             $formData["bol_transporter_without_tnt_{$site['id']}"] = BolTransporter::withoutTrackAndTrace($site['id']);
+            $formData["bol_orders_priority_{$site['id']}"] = (bool) Customsetting::get('bol_orders_priority', $site['id'], 0);
         }
 
         $this->form->fill($formData);
@@ -116,6 +118,9 @@ class BolSettingsPage extends Page
                     ->options(BolTransporter::options())
                     ->default(BolTransporter::DEFAULT_WITHOUT_TNT)
                     ->required(),
+                Toggle::make("bol_orders_priority_{$site['id']}")
+                    ->label(__('Bol-bestellingen direct als prioriteit markeren'))
+                    ->helperText(__('Nieuwe bestellingen vanuit Bol krijgen meteen het vinkje Prioriteit, zodat ze bovenaan de open bestellingen staan.')),
             ];
 
             $tabs[] = Tab::make($site['id'])
@@ -146,6 +151,7 @@ class BolSettingsPage extends Page
             Customsetting::set(BolDeliveryCode::SETTING_PRE_ORDER, $this->form->getState()["bol_delivery_code_pre_order_{$site['id']}"] ?? BolDeliveryCode::DEFAULT_PRE_ORDER, $site['id']);
             Customsetting::set(BolDeliveryCode::SETTING_DEFAULT, $this->form->getState()["bol_delivery_code_default_{$site['id']}"] ?: null, $site['id']);
             Customsetting::set(BolTransporter::SETTING_WITHOUT_TNT, $this->form->getState()["bol_transporter_without_tnt_{$site['id']}"] ?? BolTransporter::DEFAULT_WITHOUT_TNT, $site['id']);
+            Customsetting::set('bol_orders_priority', ($this->form->getState()["bol_orders_priority_{$site['id']}"] ?? false) ? 1 : 0, $site['id']);
         }
 
         Notification::make()
