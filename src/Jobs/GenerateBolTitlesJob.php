@@ -5,6 +5,7 @@ namespace Dashed\DashedEcommerceBol\Jobs;
 use Throwable;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
+use Dashed\DashedCore\Models\BackgroundTask;
 use Illuminate\Queue\SerializesModels;
 use Filament\Notifications\Notification;
 use Illuminate\Queue\InteractsWithQueue;
@@ -28,6 +29,8 @@ class GenerateBolTitlesJob implements ShouldQueue
     use SerializesModels;
     use HandlesQueueFailures;
 
+    public const TASK_TYPE = 'bol-titles';
+
     public $tries = 1;
 
     public $timeout = 1800;
@@ -50,7 +53,15 @@ class GenerateBolTitlesJob implements ShouldQueue
 
         $groups = ProductGroup::query()->whereIn('id', $this->productGroupIds)->orderBy('id')->get();
 
+        // In het takenicoon van dashed-core, zonder eigen melding: de
+        // eindmelding hieronder blijft de melding in de bel.
+        $task = class_exists(BackgroundTask::class)
+            ? BackgroundTask::begin(self::TASK_TYPE, __('Bol-titels genereren'), $groups->count(), $this->user, notify: false)
+            : null;
+
         foreach ($groups as $group) {
+            $task?->progress($done + $skipped + count($failed));
+
             if (self::skipReason($group, $this->overwrite) !== null) {
                 $skipped++;
 
@@ -94,6 +105,8 @@ class GenerateBolTitlesJob implements ShouldQueue
         }
 
         $notification->sendToDatabase($this->user);
+
+        $task?->finish($body);
     }
 
     /**
@@ -105,6 +118,17 @@ class GenerateBolTitlesJob implements ShouldQueue
      */
     public function failed(Throwable $e): void
     {
+        // Een verse instantie: de taak uit handle() is hier niet bekend.
+        if (class_exists(BackgroundTask::class)) {
+            rescue(fn () => BackgroundTask::query()
+                ->where('type', self::TASK_TYPE)
+                ->where('user_id', $this->user->getKey())
+                ->active()
+                ->latest('id')
+                ->first()
+                ?->fail($e), report: false);
+        }
+
         try {
             Notification::make()
                 ->title(__('Bol-titels genereren is gestopt'))
