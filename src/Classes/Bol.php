@@ -38,6 +38,20 @@ class Bol
         }
     }
 
+    /**
+     * Zijn er inloggegevens? Anders dan isConnected() zonder verzoek aan Bol:
+     * refreshToken() haalt zelf een token op zodra dat nodig is en houdt
+     * bol_connected en bol_connection_error bij.
+     */
+    public static function hasCredentials(?string $siteId = null): bool
+    {
+        return rescue(function () use ($siteId) {
+            $siteId ??= Sites::getActive();
+
+            return Customsetting::get('bol_client_id', $siteId) && Customsetting::get('bol_client_secret', $siteId);
+        }, true, false);
+    }
+
     public static function isConnected(?string $siteId = null): bool
     {
         if (! $siteId) {
@@ -143,6 +157,8 @@ class Bol
             $bolOrdersResultCount = 50;
             $page = 1;
             while ($bolOrdersResultCount == 50) {
+                $response = null;
+
                 try {
                     $response = Http::withToken($accessToken)
                         ->accept('application/vnd.retailer.v10+json')
@@ -163,13 +179,25 @@ class Bol
                     $bolOrders = array_merge($bolOrders, $response['orders']);
                     $bolOrdersResultCount = count($response['orders']);
                     $page++;
+                } else {
+                    // Bol geeft voorbij de laatste pagina een leeg antwoord. Precies
+                    // vijftig op de vorige pagina hield deze lus anders eeuwig gaande.
+                    $bolOrdersResultCount = 0;
                 }
 
                 // Pacing tussen pagina-opvragingen.
                 usleep(self::REQUEST_THROTTLE_MICROSECONDS);
             }
 
+            $knownOrderIds = self::knownOrderIds($bolOrders);
+
             foreach ($bolOrders as $bolOrder) {
+                // syncOrder() doet niets met een bestaande bestelling, dus voor die
+                // bestellingen is de detailaanvraag met pauze alleen maar wachten.
+                if (isset($knownOrderIds[(string) $bolOrder['orderId']])) {
+                    continue;
+                }
+
                 self::syncOrder($bolOrder);
 
                 // Pacing tussen losse order-opvragingen.
@@ -187,6 +215,22 @@ class Bol
         }
 
         return [];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $bolOrders
+     * @return array<string, true>
+     */
+    private static function knownOrderIds(array $bolOrders): array
+    {
+        $known = [];
+        foreach (array_chunk(array_column($bolOrders, 'orderId'), 500) as $orderIds) {
+            foreach (Order::whereIn('bol_order_id', $orderIds)->pluck('bol_order_id') as $orderId) {
+                $known[(string) $orderId] = true;
+            }
+        }
+
+        return $known;
     }
 
     public static function syncOrder($bolOrder): void
@@ -519,19 +563,26 @@ class Bol
      */
     public static function syncShipments()
     {
-        $orders = Order::where('bol_shipment_synced', 0)
+        foreach (self::shipmentsDueQuery()->get() as $order) {
+            self::syncShipment($order);
+        }
+    }
+
+    public static function hasShipmentsToSync(): bool
+    {
+        return rescue(fn () => self::hasCredentials() && self::shipmentsDueQuery()->exists(), true, false);
+    }
+
+    private static function shipmentsDueQuery()
+    {
+        return Order::where('bol_shipment_synced', 0)
             ->whereNotNull('bol_order_id')
             ->whereNull('bol_shipment_abandoned_at')
             ->whereIn('fulfillment_status', self::SHIPMENT_SYNC_STATUSES)
             ->where(function ($query) {
                 $query->whereNull('bol_shipment_next_attempt_at')
                     ->orWhere('bol_shipment_next_attempt_at', '<=', now());
-            })
-            ->get();
-
-        foreach ($orders as $order) {
-            self::syncShipment($order);
-        }
+            });
     }
 
     /** Teller en opgave terugzetten, voor een handmatige nieuwe poging. */

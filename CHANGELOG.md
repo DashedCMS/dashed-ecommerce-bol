@@ -2,6 +2,12 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.14.1 - 2026-11-06
+
+### Changed
+- `bol:sync-orders` draait elke 5 minuten, haalt alleen een token als dat nodig is en vraagt geen details meer op van bestellingen die al bestaan. Een lus bij precies 50 orders op de laatste pagina stopt nu. `bol:refresh-token` is uit de planning, de syncs vernieuwen zelf.
+- Widget op het dashboard doet geen orderquery meer bij elke opstart.
+
 ## v4.12.0 - 2026-10-26
 
 ### Added

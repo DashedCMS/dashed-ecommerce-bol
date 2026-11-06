@@ -4,6 +4,8 @@ namespace Dashed\DashedEcommerceBol;
 
 use Filament\Panel;
 use Filament\Contracts\Plugin;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Filament\Forms\Components\TextInput;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Filament\Schemas\Components\Utilities\Get;
@@ -19,17 +21,25 @@ class DashedEcommerceBolPlugin implements Plugin
 
     public function register(Panel $panel): void
     {
-        $widgets = [];
-
-        if (\Illuminate\Support\Facades\Schema::hasTable('dashed__orders') && Order::where('order_origin', 'Bol')->count()) {
-            $widgets[] = BolOrderStats::class;
-        }
-
         $panel
-            ->widgets($widgets)
+            ->widgets(self::hasBolOrders() ? [BolOrderStats::class] : [])
             ->pages([
                 BolSettingsPage::class,
             ]);
+    }
+
+    /**
+     * Dit draait in elk proces, ook op de front-end, en order_origin heeft geen
+     * index. Daarom gecachet: de widget verschijnt hooguit een dag na de eerste
+     * Bol-bestelling.
+     */
+    private static function hasBolOrders(): bool
+    {
+        return rescue(fn () => Cache::remember(
+            'dashed-ecommerce-bol:has-orders',
+            now()->addDay(),
+            fn () => Schema::hasTable('dashed__orders') && Order::where('order_origin', 'Bol')->exists()
+        ), false, false);
     }
 
     public static function builderBlocks(): void

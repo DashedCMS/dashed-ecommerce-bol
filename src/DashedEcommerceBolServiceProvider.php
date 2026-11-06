@@ -130,13 +130,15 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
 
         $this->app->booted(function () {
             $schedule = app(Schedule::class);
-            $schedule->command(RefreshBolToken::class)
-                ->hourly();
+            // bol:refresh-token staat er bewust niet tussen: een token leeft vijf
+            // minuten, en refreshToken() haalt er zelf een op wanneer dat nodig is.
             $schedule->command(SyncOrdersFromBolCommand::class)
-                ->everyMinute()
+                ->everyFiveMinutes()
+                ->when(fn () => \Dashed\DashedEcommerceBol\Classes\Bol::hasCredentials())
                 ->withoutOverlapping();
             $schedule->command(SyncShipmentsToBol::class)
                 ->everyFifteenMinutes()
+                ->when(fn () => \Dashed\DashedEcommerceBol\Classes\Bol::hasShipmentsToSync())
                 ->withoutOverlapping();
             $schedule->command(SyncBolReturnsCommand::class)
                 ->everyFifteenMinutes()

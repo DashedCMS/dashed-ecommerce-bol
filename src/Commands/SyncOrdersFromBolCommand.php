@@ -38,7 +38,7 @@ class SyncOrdersFromBolCommand extends Command
      */
     public function handle()
     {
-        if (Bol::isConnected()) {
+        if (Bol::hasCredentials()) {
             Bol::syncOrders();
         }
     }
