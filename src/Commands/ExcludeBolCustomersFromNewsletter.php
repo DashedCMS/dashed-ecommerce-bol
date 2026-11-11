@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace Dashed\DashedEcommerceBol\Commands;
 
 use Illuminate\Console\Command;
-use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceBol\Newsletter\ExcludeBolCustomers;
 
 /**
- * Loopt de bestaande Bol-bestellingen langs en sluit die klanten uit.
+ * Loopt de bestaande Bol-adressen langs en sluit die klanten uit.
  *
  * Vanaf nu gaat dat vanzelf bij elke nieuwe bestelling; dit is voor alles wat
  * er al stond. Veilig om vaker te draaien: blokkeren is idempotent en een
@@ -29,19 +28,11 @@ class ExcludeBolCustomersFromNewsletter extends Command
             return self::SUCCESS;
         }
 
-        $adressen = Order::where('order_origin', 'Bol')
-            ->whereNotNull('email')
-            ->where('email', '!=', '')
-            ->select('email', 'site_id')
-            ->get()
-            ->map(fn (Order $o): array => [
-                'email' => mb_strtolower(trim((string) $o->email)),
-                'site_id' => (string) $o->site_id,
-            ])
-            ->unique(fn (array $r): string => $r['site_id'] . '|' . $r['email'])
-            ->filter(fn (array $r): bool => $r['email'] !== '' && $r['site_id'] !== '');
+        $adressen = collect(ExcludeBolCustomers::addresses())
+            ->map(fn (string $siteId, string $email): array => ['email' => $email, 'site_id' => $siteId])
+            ->values();
 
-        $this->info($adressen->count() . ' uniek(e) adres(sen) op Bol-bestellingen gevonden.');
+        $this->info($adressen->count() . ' uniek(e) Bol-adres(sen) gevonden.');
 
         if ($this->option('dry-run')) {
             $opLijst = \Dashed\DashedNewsletter\Models\NewsletterSubscriber::with('list')
@@ -71,16 +62,13 @@ class ExcludeBolCustomersFromNewsletter extends Command
             return self::SUCCESS;
         }
 
-        $balk = $this->output->createProgressBar($adressen->count());
-        $balk->start();
+        $verwijderd = 0;
 
         foreach ($adressen as $regel) {
-            ExcludeBolCustomers::forEmail($regel['site_id'], $regel['email']);
-            $balk->advance();
+            $verwijderd += ExcludeBolCustomers::forEmail($regel['site_id'], $regel['email']);
         }
 
-        $balk->finish();
-        $this->newLine(2);
+        $this->line($verwijderd . ' inschrijving(en) van de lijsten gehaald.');
         $this->info('Klaar. Zie Communicatie, Blokkadelijst, reden "Marktplaats".');
 
         return self::SUCCESS;

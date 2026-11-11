@@ -24,20 +24,10 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
         // Een klant die via Bol kocht mag geen nieuwsbrief krijgen: die is
         // klant van Bol en heeft ons geen toestemming gegeven. Achter een
         // guard, want een webshop zonder nieuwsbriefmodule heeft hier niets
-        // aan.
-        //
-        // Op de Eloquent-gebeurtenis van het model en niet op
-        // OrderCreatedEvent: dat event vuurt alleen vanuit de checkout, en de
-        // Bol-sync slaat een bestelling op met een kale save(). Aan dat event
-        // hangen betekende dat geen enkele nieuwe Bol-klant ooit geblokkeerd
-        // werd. Binnen rescue(), want de nieuwsbrief mag de sync nooit stoppen.
-        if (app()->bound('newsletter')) {
-            \Illuminate\Support\Facades\Event::listen(
-                'eloquent.created: ' . \Dashed\DashedEcommerceCore\Models\Order::class,
-                function (\Dashed\DashedEcommerceCore\Models\Order $order): void {
-                    rescue(fn () => \Dashed\DashedEcommerceBol\Newsletter\ExcludeBolCustomers::forOrder($order));
-                },
-            );
+        // aan. De bewaking kijkt naar het adres zelf, niet alleen naar de
+        // herkomst van de bestelling: zie ExcludeBolCustomers.
+        if (app()->bound('newsletter') && class_exists(\Dashed\DashedNewsletter\Exceptions\SuppressedEmailException::class)) {
+            \Dashed\DashedEcommerceBol\Newsletter\ExcludeBolCustomers::register();
         }
 
         // Uitkomst van een Bol-retour terugmelden aan Bol. Achter class_exists:
@@ -143,6 +133,13 @@ class DashedEcommerceBolServiceProvider extends PackageServiceProvider
             $schedule->command(SyncBolReturnsCommand::class)
                 ->everyFifteenMinutes()
                 ->withoutOverlapping();
+            // Vangnet: een Bol-adres dat toch op een nieuwsbrieflijst kwam
+            // (een rechtstreekse query, een oudere versie) gaat er elke nacht af.
+            if (app()->bound('newsletter')) {
+                $schedule->command(\Dashed\DashedEcommerceBol\Commands\ExcludeBolCustomersFromNewsletter::class)
+                    ->dailyAt('04:45')
+                    ->withoutOverlapping();
+            }
         });
 
         ecommerce()->builder('customOrderFields', [

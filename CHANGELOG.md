@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.15.0 - 2026-11-11
+
+### Fixed
+- **Bol-klanten kwamen nog steeds op nieuwsbrieflijsten.** De uitsluiting keek alleen naar `order_origin` = Bol. Een kassa- of vervangende order met het doorstuuradres van Bol (`@verkopen.bol.com`) telde als gewone bestelling en werd ingeschreven, en een contact met bron "bestelling" gold als eigen aanmelding en bleef daarna voor altijd staan. `ExcludeBolCustomers` kijkt nu naar het adres zelf: elk adres op een Bol-domein wordt bij het opslaan van een actief contact geweigerd (elke bron, elke lijst, ook import en handmatig), net als elk adres van een Bol-bestelling dat zich niet zelf heeft aangemeld (formulier, popup, afmeldpagina; eigen bronnen aanmelden met `ExcludeBolCustomers::eigenAanmelding()`). Elke nieuwe bestelling met een Bol-adres, ongeacht herkomst, zet het adres op de blokkadelijst. Een migratie ruimt met terugwerkende kracht op en `dashed:exclude-bol-newsletter-contacts` draait elke nacht als vangnet.
+
 ## v4.14.1 - 2026-11-06
 
 ### Changed
