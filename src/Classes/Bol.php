@@ -410,12 +410,16 @@ class Bol
      */
     private static function parseBolSplitError(string $message): ?array
     {
-        if (! str_contains($message, 'order item id(s)')) {
+        if (! str_contains(strtolower($message), 'order item id')) {
             return null;
         }
 
+        // Twee vormen van Bol: "order item id(s) 1, 2. And order item id(s) 3"
+        // en (sinds november 2026) "... with order item id 1. And with order
+        // item id 2." De zin "order item id(s) that are not ..." heeft geen
+        // nummer erachter en telt dus niet mee.
         $groups = [];
-        if (! preg_match_all('/order item id\(s\)\s*([0-9,\s]+?)(?:\.|$)/i', $message, $matches)) {
+        if (! preg_match_all('/order item id(?:\(s\)|s)?\s+(\d[\d,\s]*)/i', $message, $matches)) {
             return null;
         }
 

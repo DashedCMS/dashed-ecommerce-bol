@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.15.1 - 2026-11-13
+
+### Fixed
+- **Verzending van een gesplitste Bol-order werd nooit gemeld.** Bij regels die bij Bol in verschillende deelorders zitten (gemengde order met een pre-orderregel) noemt Bol in de foutmelding welke regels samen mogen. Sinds november 2026 schrijft Bol dat als "with order item id 1. And with order item id 2." in plaats van "order item id(s) 1, 2"; de parser herkende dat niet, de melding faalde twaalf keer en werd opgegeven. Beide vormen worden nu herkend en de regels per groep gemeld.
+
 ## v4.15.0 - 2026-11-11
 
 ### Fixed
