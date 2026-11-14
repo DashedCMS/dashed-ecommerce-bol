@@ -2,7 +2,7 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
-## Unreleased
+## v4.16.0 - 2026-11-14
 
 ### Added
 - **Uiterste leverdatum van Bol op de order.** `Bol::syncOrder()` zet de vroegste `latestDeliveryDate` (anders `exactDeliveryDate`) van de orderregels als deadline (bron `bol`) via `Order::setShippingDeadline()`. Nieuw: `Bol::syncDeliveryDate($order)` en `bol:sync-delivery-dates {--days=60} {--dry-run}` voor bestaande open orders. Vereist ec-core ^4.193.
