@@ -233,6 +233,73 @@ class Bol
         return $known;
     }
 
+    /**
+     * Earliest delivery date (Y-m-d) over all order items: latestDeliveryDate,
+     * falling back to exactDeliveryDate per item.
+     */
+    public static function earliestDeliveryDate(array $orderItems): ?string
+    {
+        $dates = [];
+        foreach ($orderItems as $item) {
+            $date = $item['fulfilment']['latestDeliveryDate'] ?? $item['fulfilment']['exactDeliveryDate'] ?? null;
+            if ($date) {
+                $dates[] = Carbon::parse($date)->format('Y-m-d');
+            }
+        }
+
+        return $dates ? min($dates) : null;
+    }
+
+    protected static function applyDeliveryDate(Order $order, array $orderItems): bool
+    {
+        if (! method_exists($order, 'setShippingDeadline')) {
+            return false;
+        }
+
+        $date = self::earliestDeliveryDate($orderItems);
+        if (! $date) {
+            return false;
+        }
+
+        $order->setShippingDeadline(null, Carbon::parse($date), 'bol');
+
+        return true;
+    }
+
+    /**
+     * Fetch the Bol order once and store its delivery deadline on the order.
+     */
+    public static function syncDeliveryDate(Order $order): bool
+    {
+        if (! $order->bol_order_id || ! method_exists($order, 'setShippingDeadline')) {
+            return false;
+        }
+
+        $siteId = $order->site_id ?: Sites::getActive();
+
+        self::refreshToken($siteId);
+
+        $accessToken = Customsetting::get('bol_access_token', $siteId);
+        if (! $accessToken) {
+            return false;
+        }
+
+        try {
+            $httpResponse = Http::withToken($accessToken)
+                ->accept('application/vnd.retailer.v10+json')
+                ->retry(3, 1000, throw: false)
+                ->get(self::APIURL . '/retailer/orders/' . $order->bol_order_id);
+        } catch (ConnectionException $exception) {
+            return false;
+        }
+
+        if ($httpResponse->failed()) {
+            return false;
+        }
+
+        return self::applyDeliveryDate($order, $httpResponse->json('orderItems') ?? []);
+    }
+
     public static function syncOrder($bolOrder): void
     {
         $siteId = Sites::getActive();
@@ -379,6 +446,8 @@ class Bol
             }
 
             rescue(fn () => self::logMixedOrderNotice($order, $response['orderItems'] ?? []));
+
+            rescue(fn () => self::applyDeliveryDate($order, $response['orderItems'] ?? []));
 
             if ($orderContainsPreOrders) {
                 $order->contains_pre_orders = true;

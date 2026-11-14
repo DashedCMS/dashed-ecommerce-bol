@@ -9,6 +9,7 @@ use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Dashed\DashedEcommerceBol\Commands\RefreshBolToken;
 use Dashed\DashedEcommerceBol\Commands\SyncShipmentsToBol;
 use Dashed\DashedEcommerceBol\Commands\SyncBolReturnsCommand;
+use Dashed\DashedEcommerceBol\Commands\SyncDeliveryDatesCommand;
 use Dashed\DashedEcommerceBol\Commands\SyncOrdersFromBolCommand;
 use Dashed\DashedEcommerceBol\Filament\Pages\Settings\BolSettingsPage;
 use Dashed\DashedEcommerceBol\Commands\PruneBolShipmentErrorLogsCommand;
@@ -234,6 +235,7 @@ MARKDOWN,
 //            ])
             ->hasCommands([
                 SyncOrdersFromBolCommand::class,
+                SyncDeliveryDatesCommand::class,
                 RefreshBolToken::class,
                 SyncShipmentsToBol::class,
                 PruneBolShipmentErrorLogsCommand::class,
