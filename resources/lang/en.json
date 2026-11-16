@@ -111,5 +111,6 @@
     "Voorbeeld: :voorbeeld": "Example: :voorbeeld",
     "Voorbeelden": "Examples",
     "Voor producten zonder directe voorraad die wel besteld kunnen worden (print-on-demand). Gaat als veld bol_delivery_code mee in de productfeed; koppel dat veld in Channable aan de levertijd van het Bol-aanbod.": "For products without direct stock that can still be ordered (print-on-demand). Goes into the product feed as the field bol_delivery_code; map that field in Channable to the delivery time of the Bol offer.",
-    "Wordt gebruikt als een productgroep geen kenmerk of filter Merk heeft.": "Used when a product group has no Brand characteristic or filter."
+    "Wordt gebruikt als een productgroep geen kenmerk of filter Merk heeft.": "Used when a product group has no Brand characteristic or filter.",
+    "Alle porties zijn verwerkt. De uitkomst per portie staat in je meldingen.": "All batches have been processed. The result of each batch is in your notifications."
 }

@@ -193,8 +193,11 @@ class BolSettingsPage extends Page
                         return;
                     }
 
+                    // Eén regel in het takenicoon voor alle porties samen.
+                    $taskId = GenerateBolTitlesJob::beginSharedTask(count($ids), auth()->user());
+
                     foreach (array_chunk($ids, self::BOL_TITLE_CHUNK) as $chunk) {
-                        GenerateBolTitlesJob::dispatch($chunk, false, auth()->user());
+                        GenerateBolTitlesJob::dispatch($chunk, false, auth()->user(), $taskId);
                     }
 
                     Notification::make()

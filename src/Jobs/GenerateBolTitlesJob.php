@@ -42,7 +42,27 @@ class GenerateBolTitlesJob implements ShouldQueue
         public array $productGroupIds,
         public bool $overwrite,
         public User $user,
+        public ?int $taskId = null,
     ) {
+    }
+
+    /**
+     * Eén taak voor alle porties van "Ontbrekende Bol-titels genereren": de
+     * instellingenpagina zet per BolSettingsPage::BOL_TITLE_CHUNK groepen een
+     * job klaar, en zonder gedeelde taak kreeg elke portie een eigen regel in
+     * het takenicoon. Het totaal is het aantal groepen over alle porties.
+     */
+    public static function beginSharedTask(int $total, ?User $user): ?int
+    {
+        if (! class_exists(BackgroundTask::class)) {
+            return null;
+        }
+
+        return rescue(
+            fn () => BackgroundTask::begin(self::TASK_TYPE, __('Ontbrekende Bol-titels genereren'), $total, $user, notify: false)->getKey(),
+            null,
+            report: false,
+        );
     }
 
     public function handle(BolTitleGenerator $generator): void
@@ -54,13 +74,22 @@ class GenerateBolTitlesJob implements ShouldQueue
         $groups = ProductGroup::query()->whereIn('id', $this->productGroupIds)->orderBy('id')->get();
 
         // In het takenicoon van dashed-core, zonder eigen melding: de
-        // eindmelding hieronder blijft de melding in de bel.
-        $task = class_exists(BackgroundTask::class)
+        // eindmelding hieronder blijft de melding in de bel. Een portie van
+        // de instellingenpagina telt mee in de gedeelde taak.
+        $task = class_exists(BackgroundTask::class) && $this->taskId === null
             ? BackgroundTask::begin(self::TASK_TYPE, __('Bol-titels genereren'), $groups->count(), $this->user, notify: false)
             : null;
 
-        foreach ($groups as $group) {
+        // Een groep die sinds het klaarzetten verwijderd is, telt meteen als
+        // afgehandeld, anders haalt de gedeelde taak zijn totaal nooit.
+        $this->advanceSharedTask(count($this->productGroupIds) - $groups->count());
+
+        foreach ($groups as $index => $group) {
             $task?->progress($done + $skipped + count($failed));
+
+            if ($index > 0) {
+                $this->advanceSharedTask(1);
+            }
 
             if (self::skipReason($group, $this->overwrite) !== null) {
                 $skipped++;
@@ -107,6 +136,52 @@ class GenerateBolTitlesJob implements ShouldQueue
         $notification->sendToDatabase($this->user);
 
         $task?->finish($body);
+
+        if ($groups->isNotEmpty()) {
+            $this->advanceSharedTask(1);
+        }
+        $this->finishSharedTaskIfComplete();
+    }
+
+    /**
+     * Ophogen in de database en niet via advance(): de porties kunnen naast
+     * elkaar draaien, en een teller in het geheugen van één job zou de
+     * voortgang van de andere overschrijven. Alleen een lopende taak: een
+     * portie die al mislukt meldde, mag niet weer op bezig springen.
+     */
+    protected function advanceSharedTask(int $by): void
+    {
+        if ($this->taskId === null || $by < 1 || ! class_exists(BackgroundTask::class)) {
+            return;
+        }
+
+        rescue(fn () => BackgroundTask::query()
+            ->whereKey($this->taskId)
+            ->active()
+            ->increment('done', $by), report: false);
+    }
+
+    /**
+     * De portie die het totaal haalt sluit de taak af. Voorwaardelijk in één
+     * update, zodat twee porties die tegelijk eindigen hem niet allebei
+     * afsluiten.
+     */
+    protected function finishSharedTaskIfComplete(): void
+    {
+        if ($this->taskId === null || ! class_exists(BackgroundTask::class)) {
+            return;
+        }
+
+        rescue(fn () => BackgroundTask::query()
+            ->whereKey($this->taskId)
+            ->active()
+            ->whereColumn('done', '>=', 'total')
+            ->update([
+                'status' => BackgroundTask::STATUS_COMPLETED,
+                'message' => __('Alle porties zijn verwerkt. De uitkomst per portie staat in je meldingen.'),
+                'finished_at' => now(),
+                'updated_at' => now(),
+            ]), report: false);
     }
 
     /**
@@ -118,13 +193,17 @@ class GenerateBolTitlesJob implements ShouldQueue
      */
     public function failed(Throwable $e): void
     {
-        // Een verse instantie: de taak uit handle() is hier niet bekend.
+        // Een verse instantie: de taak uit handle() is hier niet bekend. Een
+        // portie zet de gedeelde taak op mislukt; de andere porties lopen
+        // door en melden zich nog in de bel, maar de taak blijft mislukt.
         if (class_exists(BackgroundTask::class)) {
-            rescue(fn () => BackgroundTask::query()
-                ->where('type', self::TASK_TYPE)
-                ->where('user_id', $this->user->getKey())
+            rescue(fn () => ($this->taskId !== null
+                ? BackgroundTask::query()->whereKey($this->taskId)
+                : BackgroundTask::query()
+                    ->where('type', self::TASK_TYPE)
+                    ->where('user_id', $this->user->getKey())
+                    ->latest('id'))
                 ->active()
-                ->latest('id')
                 ->first()
                 ?->fail($e), report: false);
         }
@@ -151,6 +230,7 @@ class GenerateBolTitlesJob implements ShouldQueue
             'requested_by' => $this->user->getKey(),
             'product_groups' => count($this->productGroupIds),
             'overwrite' => $this->overwrite,
+            'background_task' => $this->taskId,
         ];
     }
 

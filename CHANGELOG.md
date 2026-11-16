@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-bol` will be documented in this file.
 
+## v4.17.0 - 2026-11-16
+
+### Changed
+- "Ontbrekende Bol-titels genereren" is één taak over alle porties van vijftig groepen, in plaats van een taak per portie.
+
 ## v4.16.0 - 2026-11-14
 
 ### Added
