@@ -20,7 +20,7 @@
         "spatie/laravel-package-tools": "^1.16"
     },
     "require-dev": {
-        "dashed/dashed-core": "^4.80",
+        "dashed/dashed-core": "^4.124",
         "dashed/dashed-ecommerce-core": "^4.193",
         "dashed/dashed-translations": "*",
         "filament/upgrade": "^4.0",

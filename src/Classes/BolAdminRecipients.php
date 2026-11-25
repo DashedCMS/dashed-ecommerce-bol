@@ -26,7 +26,7 @@ class BolAdminRecipients
             return $emails;
         }
 
-        return User::query()->where('role', 'superadmin')->whereNotNull('email')->orderBy('id')
+        return User::query()->superadmins()->whereNotNull('email')->orderBy('id')
             ->pluck('email')->map(fn ($e) => strtolower(trim((string) $e)))->filter()->unique()->values()->all();
     }
 }
